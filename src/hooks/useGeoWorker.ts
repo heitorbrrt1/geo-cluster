@@ -92,6 +92,7 @@ export const useGeoWorker = (workerUrl?: string) => {
     progress,
     error,
     workerData,
+    setWorkerData,
     startFetch,
     runKMeans,
     terminate,

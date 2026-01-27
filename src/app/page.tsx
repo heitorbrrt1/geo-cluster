@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useGeoWorker } from '@/hooks/useGeoWorker';
 import type { City, GeoDBCityRaw, GeoDBResponse } from '@/types/geo';
 
@@ -12,7 +12,7 @@ export default function GeoClusterPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { startFetch, isWorking, progress, workerData, error: workerError } = useGeoWorker();
+  const { startFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
     setLoadingManual(true);
@@ -86,12 +86,49 @@ export default function GeoClusterPage() {
     startFetch({
       offsetStart: 0,
       totalToFetch: 10000,
-      limitPerPage: 100,
+      limitPerPage: 10,
       headers: {
         'X-RapidAPI-Key': process.env.NEXT_PUBLIC_RAPIDAPI_KEY || '',
         'X-RapidAPI-Host': process.env.NEXT_PUBLIC_RAPIDAPI_HOST || '',
       }
     });
+  };
+
+  // Função para disparar o download do JSON gerado pelo worker
+  const handleDownloadData = () => {
+    if (!workerData || workerData.length === 0) return;
+
+    const jsonString = JSON.stringify(workerData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'cidades_minedas_10k.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Função para ler arquivo JSON e injetar no estado do hook
+  const handleLoadFromFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const loadedCities = JSON.parse(content) as City[];
+        setWorkerData(loadedCities);
+        console.log(`Carregadas ${loadedCities.length} cidades do arquivo!`);
+        alert(`Sucesso! ${loadedCities.length} cidades carregadas. Pode rodar o K-Means agora.`);
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao ler JSON. O formato está errado?');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const filteredSelectedCities = selectedCities.filter(city =>
@@ -161,6 +198,27 @@ export default function GeoClusterPage() {
                   </>
                 )}
               </button>
+              {/* UPLOAD / DOWNLOAD JSON */}
+              <div className="flex gap-2 mr-4">
+                <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">
+                  📂 Carregar JSON
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={handleLoadFromFile}
+                  />
+                </label>
+
+                {workerData && workerData.length > 0 && (
+                  <button
+                    onClick={handleDownloadData}
+                    className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold"
+                  >
+                    💾 Salvar JSON
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

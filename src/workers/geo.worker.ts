@@ -29,42 +29,74 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
 
           const url = `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?${params.toString()}`;
 
-          const res = await fetch(url, { headers: headers as Record<string, string> | undefined });
-          if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+          let success = false;
+          let retryCount = 0;
 
-          const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
-          const raw = json.data ?? [];
+          // Retry loop for the SAME page (handles 429 backoff)
+          while (!success) {
+            try {
+              const res = await fetch(url, { headers: headers as Record<string, string> | undefined });
 
-          // Safety: if API returned no items this page, stop to avoid infinite loop
-          if (raw.length === 0) {
-            break;
+              // Handle rate limiting specifically
+              if (res.status === 429) {
+                retryCount++;
+                const waitTime = 5000 * retryCount; // 5s, 10s, 15s...
+
+                ctx.postMessage({
+                  type: 'FETCH_PROGRESS',
+                  payload: { progress: Math.min(100, Math.round((collected.length / totalToFetch) * 100)), message: `⚠️ Limite atingido (429). Esperando ${waitTime / 1000}s...` },
+                } as WorkerResponse);
+
+                console.warn(`Erro 429. Tentativa ${retryCount}. Esperando ${waitTime}ms...`);
+                await delay(waitTime);
+                continue;
+              }
+
+              if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+
+              const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
+              const raw = json.data ?? [];
+
+              // Safety: if API returned no items this page, stop to avoid infinite loop
+              if (raw.length === 0) {
+                success = true; // mark success to exit retry loop and break outer loop afterwards
+                break;
+              }
+
+              const good = raw
+                .filter((r) => r.population != null && r.population !== 0)
+                .map<City>((r) => ({
+                  id: String(r.id),
+                  wikiDataId: r.wikiDataId ?? null,
+                  name: r.name,
+                  country: r.country,
+                  latitude: r.latitude,
+                  longitude: r.longitude,
+                  population: Number(r.population ?? 0),
+                }));
+
+              collected.push(...good);
+              fetchedCount += raw.length;
+
+              const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
+              const progressMsg: WorkerResponse = {
+                type: 'FETCH_PROGRESS',
+                payload: { progress, message: `fetched ${collected.length} / ${totalToFetch}` },
+              };
+              ctx.postMessage(progressMsg);
+
+              success = true;
+              retryCount = 0;
+            } catch (err) {
+              // If there's a fatal network error, rethrow to be handled by outer catch
+              throw err;
+            }
           }
-
-          const good = raw
-            .filter((r) => r.population != null && r.population !== 0)
-            .map<City>((r) => ({
-              id: String(r.id),
-              wikiDataId: r.wikiDataId ?? null,
-              name: r.name,
-              country: r.country,
-              latitude: r.latitude,
-              longitude: r.longitude,
-              population: Number(r.population ?? 0),
-            }));
-
-          collected.push(...good);
-          fetchedCount += raw.length;
-
-          const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
-          const progressMsg: WorkerResponse = {
-            type: 'FETCH_PROGRESS',
-            payload: { progress, message: `fetched ${collected.length} / ${totalToFetch}` },
-          };
-          ctx.postMessage(progressMsg);
 
           if (collected.length >= totalToFetch) break;
 
-          await delay(1200);
+          // Aumenta o delay entre páginas para reduzir chance de rate-limit
+          await delay(2000);
         }
 
         const completeMsg: WorkerResponse = { type: 'FETCH_COMPLETE', payload: { cities: collected } };
