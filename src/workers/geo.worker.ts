@@ -18,8 +18,18 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         const { offsetStart, totalToFetch, limitPerPage = 100, query, headers } = req.payload;
         const collected: City[] = [];
         let fetchedCount = 0;
+        let requestCount = 0; // <--- NOVO CONTADOR
+        const SAFETY_LIMIT = 980; // Deixa 20 de sobra pra não queimar a conta
 
         while (collected.length < totalToFetch) {
+          // 1. Checagem de Segurança
+          if (requestCount >= SAFETY_LIMIT) {
+            ctx.postMessage({
+              type: 'FETCH_PROGRESS',
+              payload: { progress: 100, message: '⚠️ Limite de segurança da API atingido. Salvando...' },
+            } as WorkerResponse);
+            break; // Sai do loop e salva o que tem
+          }
           const pageLimit = Math.min(limitPerPage, totalToFetch - collected.length);
           const offset = offsetStart + fetchedCount;
           const params = new URLSearchParams();
@@ -35,6 +45,10 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           // Retry loop for the SAME page (handles 429 backoff)
           while (!success) {
             try {
+              // 2. Incrementa antes de fazer o fetch
+              requestCount++;
+              console.log('requestCount', requestCount);
+
               const res = await fetch(url, { headers: headers as Record<string, string> | undefined });
 
               // Handle rate limiting specifically
