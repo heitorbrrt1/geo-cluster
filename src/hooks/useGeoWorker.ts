@@ -13,7 +13,7 @@ export const useGeoWorker = (workerUrl?: string) => {
   const [isWorking, setIsWorking] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [workerData, setWorkerData] = useState<readonly City[] | null>(null);
+  const [workerData, setWorkerData] = useState<readonly City[]>([]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -34,7 +34,8 @@ export const useGeoWorker = (workerUrl?: string) => {
         case 'FETCH_COMPLETE':
           setIsWorking(false);
           setProgress(100);
-          setWorkerData(msg.payload.cities);
+          // ACUMULAR DADOS: adiciona o que veio agora ao que já existe
+          setWorkerData((prev) => [...prev, ...msg.payload.cities]);
           break;
         case 'KMEANS_RESULT':
           setIsWorking(false);
@@ -67,8 +68,19 @@ export const useGeoWorker = (workerUrl?: string) => {
     setError(null);
     setProgress(0);
     setIsWorking(true);
+    // Se começarmos do zero, limpamos dados antigos. Se for continuação (offset > 0), mantemos.
+    if (payload.offsetStart === 0) {
+      setWorkerData([]);
+    }
+
     const msg: WorkerRequest = { type: 'START_FETCH', payload } as WorkerRequest;
     workerRef.current.postMessage(msg);
+  }, []);
+
+  // Função para sinalizar parada ao worker
+  const stopFetch = useCallback(() => {
+    if (!workerRef.current) return;
+    workerRef.current.postMessage({ type: 'STOP_FETCH' } as WorkerRequest);
   }, []);
 
   const runKMeans = useCallback((payload: RunKMeansPayload) => {
@@ -94,6 +106,7 @@ export const useGeoWorker = (workerUrl?: string) => {
     workerData,
     setWorkerData,
     startFetch,
+    stopFetch,
     runKMeans,
     terminate,
   } as const;
