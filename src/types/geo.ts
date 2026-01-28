@@ -47,7 +47,6 @@ export type WorkerRequest =
         readonly headers?: Readonly<Record<string, string>>;
       };
     }
-  | { readonly type: 'STOP_FETCH' }
   | {
       readonly type: 'RUN_KMEANS';
       readonly payload: {

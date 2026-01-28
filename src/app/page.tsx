@@ -12,7 +12,7 @@ export default function GeoClusterPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
+  const { startFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
     setLoadingManual(true);
@@ -83,18 +83,9 @@ export default function GeoClusterPage() {
   };
 
   const handleStartMining = () => {
-    const currentCount = workerData ? workerData.length : 0;
-    const targetTotal = 10000;
-    const missing = targetTotal - currentCount;
-
-    if (missing <= 0) {
-      alert('Você já tem 10.000 cidades! Salve o JSON.');
-      return;
-    }
-
     startFetch({
-      offsetStart: currentCount,
-      totalToFetch: missing,
+      offsetStart: 0,
+      totalToFetch: 10000,
       limitPerPage: 10,
       headers: {
         'X-RapidAPI-Key': process.env.NEXT_PUBLIC_RAPIDAPI_KEY || '',
@@ -106,12 +97,13 @@ export default function GeoClusterPage() {
   // Função para disparar o download do JSON gerado pelo worker
   const handleDownloadData = () => {
     if (!workerData || workerData.length === 0) return;
+
     const jsonString = JSON.stringify(workerData, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `cidades_parcial_${workerData.length}.json`;
+    link.download = 'cidades_minedas_10k.json';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -179,16 +171,32 @@ export default function GeoClusterPage() {
                 </div>
               </div>
 
-              {/* BOTÃO DUPLO: INICIAR / PARAR */}
+              {/* BOTÃO MINERAÇÃO */}
               <button
-                onClick={isWorking ? stopFetch : handleStartMining}
-                className={`px-6 py-2 rounded font-bold transition-colors ${
+                onClick={handleStartMining}
+                disabled={isWorking}
+                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center gap-2 shadow-lg ${
                   isWorking
-                    ? 'bg-red-500 hover:bg-red-600 shadow-lg text-white'
-                    : 'bg-green-500 hover:bg-green-600 shadow-lg text-white'
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105'
                 }`}
               >
-                {isWorking ? '🛑 PARAR E SALVAR' : `Iniciar Mineração (Faltam ${10000 - (workerData?.length || 0)})`}
+                {isWorking ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    Minerando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Minerar 10k Cidades
+                  </>
+                )}
               </button>
               {/* UPLOAD / DOWNLOAD JSON */}
               <div className="flex gap-2 mr-4">
@@ -205,9 +213,9 @@ export default function GeoClusterPage() {
                 {workerData && workerData.length > 0 && (
                   <button
                     onClick={handleDownloadData}
-                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-sm font-bold"
+                    className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold"
                   >
-                    💾 Baixar JSON ({workerData.length})
+                    💾 Salvar JSON
                   </button>
                 )}
               </div>

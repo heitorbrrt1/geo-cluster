@@ -7,114 +7,132 @@ import type {
 } from '../types/geo';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const ctx: any = self as any;
 
-// Variável de controle fora do listener para persistir entre mensagens
-let shouldStop = false;
+const ctx: any = self as any;
 
 ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   try {
     switch (req.type) {
       case 'START_FETCH': {
-        shouldStop = false; // Reseta a flag ao iniciar
-        const { offsetStart, totalToFetch, limitPerPage = 10, query, headers } = req.payload;
-        
-        // collected armazena apenas o que for baixado NESTA sessão
-        const collected: City[] = []; 
+        const { offsetStart, totalToFetch, limitPerPage = 100, query, headers } = req.payload;
+        const collected: City[] = [];
         let fetchedCount = 0;
+        let requestCount = 0; // <--- NOVO CONTADOR
+        const SAFETY_LIMIT = 980; // Deixa 20 de sobra pra não queimar a conta
 
-        // Loop Principal
         while (collected.length < totalToFetch) {
-          // 1. CHECAGEM DE PARADA
-          if (shouldStop) {
+          // 1. Checagem de Segurança
+          if (requestCount >= SAFETY_LIMIT) {
             ctx.postMessage({
               type: 'FETCH_PROGRESS',
-              payload: { progress: 100, message: '🛑 Parando e salvando...' },
-            });
-            break; // Sai do loop e entrega o que já pegou
+              payload: { progress: 100, message: '⚠️ Limite de segurança da API atingido. Salvando...' },
+            } as WorkerResponse);
+            break; // Sai do loop e salva o que tem
           }
-
           const pageLimit = Math.min(limitPerPage, totalToFetch - collected.length);
-          // O offset real é o inicial + o que já andamos
           const offset = offsetStart + fetchedCount;
-          
           const params = new URLSearchParams();
           params.set('offset', String(offset));
           params.set('limit', String(pageLimit));
-          params.set('sort', '-population'); // Importante para manter a ordem
           if (query) params.set('namePrefix', query);
 
           const url = `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?${params.toString()}`;
 
-          // Lógica de Retry (simples para exemplo)
-          let res;
-          try {
-             res = await fetch(url, { headers: headers as Record<string, string> | undefined });
-          } catch (e) {
-             // Se der erro de rede, espera e tenta de novo ou para
-             await delay(2000);
-             continue;
+          let success = false;
+          let retryCount = 0;
+
+          // Retry loop for the SAME page (handles 429 backoff)
+          while (!success) {
+            try {
+              // 2. Incrementa antes de fazer o fetch
+              requestCount++;
+              console.log('requestCount', requestCount);
+
+              const res = await fetch(url, { headers: headers as Record<string, string> | undefined });
+
+              // Handle rate limiting specifically
+              if (res.status === 429) {
+                retryCount++;
+                const waitTime = 5000 * retryCount; // 5s, 10s, 15s...
+
+                ctx.postMessage({
+                  type: 'FETCH_PROGRESS',
+                  payload: { progress: Math.min(100, Math.round((collected.length / totalToFetch) * 100)), message: `⚠️ Limite atingido (429). Esperando ${waitTime / 1000}s...` },
+                } as WorkerResponse);
+
+                console.warn(`Erro 429. Tentativa ${retryCount}. Esperando ${waitTime}ms...`);
+                await delay(waitTime);
+                continue;
+              }
+
+              if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+
+              const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
+              const raw = json.data ?? [];
+
+              // Safety: if API returned no items this page, stop to avoid infinite loop
+              if (raw.length === 0) {
+                success = true; // mark success to exit retry loop and break outer loop afterwards
+                break;
+              }
+
+              const good = raw
+                .filter((r) => r.population != null && r.population !== 0)
+                .map<City>((r) => ({
+                  id: String(r.id),
+                  wikiDataId: r.wikiDataId ?? null,
+                  name: r.name,
+                  country: r.country,
+                  latitude: r.latitude,
+                  longitude: r.longitude,
+                  population: Number(r.population ?? 0),
+                }));
+
+              collected.push(...good);
+              fetchedCount += raw.length;
+
+              const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
+              const progressMsg: WorkerResponse = {
+                type: 'FETCH_PROGRESS',
+                payload: { progress, message: `fetched ${collected.length} / ${totalToFetch}` },
+              };
+              ctx.postMessage(progressMsg);
+
+              success = true;
+              retryCount = 0;
+            } catch (err) {
+              // If there's a fatal network error, rethrow to be handled by outer catch
+              throw err;
+            }
           }
 
-          if (res.status === 429) {
-             // Rate Limit: espera mais e tenta de novo a mesma página
-             ctx.postMessage({ type: 'FETCH_PROGRESS', payload: { progress: 0, message: '⏳ Rate limit (429). Esperando...' }});
-             await delay(5000);
-             continue;
-          }
+          if (collected.length >= totalToFetch) break;
 
-          const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
-          const raw = json.data ?? [];
-
-          if (raw.length === 0) break;
-
-          const good = raw
-            .filter((r) => r.population != null && r.population !== 0)
-            .map<City>((r) => ({
-              id: String(r.id),
-              wikiDataId: r.wikiDataId ?? null,
-              name: r.name,
-              country: r.country,
-              latitude: r.latitude,
-              longitude: r.longitude,
-              population: Number(r.population ?? 0),
-            }));
-
-          collected.push(...good);
-          fetchedCount += raw.length; // Avança o contador local
-
-          // Reporta progresso
-          const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
-          ctx.postMessage({
-            type: 'FETCH_PROGRESS',
-            payload: { progress, message: `Baixadas: ${collected.length} (Total nesta sessão)` },
-          });
-
-          // Delay de segurança
-          await delay(1500);
+          // Aumenta o delay entre páginas para reduzir chance de rate-limit
+          await delay(2000);
         }
 
-        // FIM: Envia o que conseguiu pegar
-        ctx.postMessage({ type: 'FETCH_COMPLETE', payload: { cities: collected } });
+        const completeMsg: WorkerResponse = { type: 'FETCH_COMPLETE', payload: { cities: collected } };
+        ctx.postMessage(completeMsg);
         break;
       }
 
-      case 'STOP_FETCH': {
-        shouldStop = true; // Apenas sinaliza para o loop parar
+      case 'RUN_KMEANS': {
+        console.log('RUN_KMEANS payload (worker):', req.payload);
         break;
       }
 
-      // ... Mantenha RUN_KMEANS e TERMINATE iguais ...
-      case 'RUN_KMEANS':
-        // ...
-        break;
-      case 'TERMINATE':
+      case 'TERMINATE': {
         ctx.close();
         break;
+      }
+
+      default:
+        ctx.postMessage({ type: 'ERROR', payload: { message: 'Unknown request type' } } as WorkerResponse);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.postMessage({ type: 'ERROR', payload: { message } });
+    ctx.postMessage({ type: 'ERROR', payload: { message } } as WorkerResponse);
   }
 });
