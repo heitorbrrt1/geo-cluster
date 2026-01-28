@@ -34,7 +34,11 @@ export const useGeoWorker = (workerUrl?: string) => {
         case 'FETCH_COMPLETE':
           setIsWorking(false);
           setProgress(100);
-          setWorkerData(msg.payload.cities);
+          // Acumula os novos itens no estado existente, para preservar cargas prévias
+          setWorkerData((prev) => {
+            const newCities = msg.payload.cities || [];
+            return [...(prev || []), ...newCities];
+          });
           break;
         case 'KMEANS_RESULT':
           setIsWorking(false);
@@ -67,8 +71,18 @@ export const useGeoWorker = (workerUrl?: string) => {
     setError(null);
     setProgress(0);
     setIsWorking(true);
+    // Só limpa a memória local se o usuário explicitamente pediu para começar do zero
+    if (payload.offsetStart === 0) {
+      setWorkerData([]);
+    }
+
     const msg: WorkerRequest = { type: 'START_FETCH', payload } as WorkerRequest;
     workerRef.current.postMessage(msg);
+  }, []);
+
+  const stopFetch = useCallback(() => {
+    if (!workerRef.current) return;
+    workerRef.current.postMessage({ type: 'STOP_FETCH' } as WorkerRequest);
   }, []);
 
   const runKMeans = useCallback((payload: RunKMeansPayload) => {
@@ -96,6 +110,7 @@ export const useGeoWorker = (workerUrl?: string) => {
     startFetch,
     runKMeans,
     terminate,
+    stopFetch,
   } as const;
 };
 

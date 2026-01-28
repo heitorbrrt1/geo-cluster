@@ -10,11 +10,16 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ctx: any = self as any;
 
+// Controle para permitir interromper a operação de fetch
+let shouldStop = false;
+
 ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   try {
     switch (req.type) {
       case 'START_FETCH': {
+        // Sempre resetamos o flag ao reiniciar uma sessão de fetch
+        shouldStop = false;
         const { offsetStart, totalToFetch, limitPerPage = 100, query, headers } = req.payload;
         const collected: City[] = [];
         let fetchedCount = 0;
@@ -22,6 +27,14 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         const SAFETY_LIMIT = 980; // Deixa 20 de sobra pra não queimar a conta
 
         while (collected.length < totalToFetch) {
+          // Se recebemos sinal de parada, interrompe o loop e salva o que já foi coletado
+          if (shouldStop) {
+            ctx.postMessage({
+              type: 'FETCH_PROGRESS',
+              payload: { progress: 100, message: '🛑 Parando e salvando...' },
+            } as WorkerResponse);
+            break;
+          }
           // 1. Checagem de Segurança
           if (requestCount >= SAFETY_LIMIT) {
             ctx.postMessage({
@@ -120,6 +133,12 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
 
       case 'RUN_KMEANS': {
         console.log('RUN_KMEANS payload (worker):', req.payload);
+        break;
+      }
+
+      case 'STOP_FETCH': {
+        // Seta o flag para que o loop principal interrompa
+        shouldStop = true;
         break;
       }
 

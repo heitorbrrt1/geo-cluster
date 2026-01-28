@@ -56,6 +56,7 @@ export type WorkerRequest =
         readonly seed?: number;
       };
     }
+  | { readonly type: 'STOP_FETCH' }
   | { readonly type: 'TERMINATE'; };
 
 export type WorkerResponse =

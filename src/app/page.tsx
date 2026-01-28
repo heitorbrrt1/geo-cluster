@@ -11,8 +11,9 @@ export default function GeoClusterPage() {
   const [offset, setOffset] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
+  const [manualOffset, setManualOffset] = useState(0);
 
-  const { startFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
+  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
     setLoadingManual(true);
@@ -83,9 +84,18 @@ export default function GeoClusterPage() {
   };
 
   const handleStartMining = () => {
+    const targetTotal = 10000;
+    const offsetStart = Number(manualOffset) || 0;
+    const missing = targetTotal - offsetStart;
+
+    if (missing <= 0) {
+      alert('O offset inicial já é maior ou igual a 10.000!');
+      return;
+    }
+
     startFetch({
-      offsetStart: 0,
-      totalToFetch: 10000,
+      offsetStart: offsetStart,
+      totalToFetch: missing,
       limitPerPage: 10,
       headers: {
         'X-RapidAPI-Key': process.env.NEXT_PUBLIC_RAPIDAPI_KEY || '',
@@ -171,33 +181,51 @@ export default function GeoClusterPage() {
                 </div>
               </div>
 
-              {/* BOTÃO MINERAÇÃO */}
-              <button
-                onClick={handleStartMining}
-                disabled={isWorking}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center gap-2 shadow-lg ${
-                  isWorking
-                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                    : 'bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105'
-                }`}
-              >
-                {isWorking ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                    </svg>
-                    Minerando...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    Minerar 10k Cidades
-                  </>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                {/* CAMPO DE OFFSET MANUAL (Só aparece se não estiver rodando) */}
+                {!isWorking && (
+                  <div className="flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                      Começar do Offset
+                    </label>
+                    <input 
+                      type="number" 
+                      value={manualOffset}
+                      onChange={(e) => setManualOffset(Number(e.target.value))}
+                      className="w-24 px-3 py-3 rounded-xl border border-slate-200 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                      placeholder="0"
+                      min={0}
+                    />
+                  </div>
                 )}
-              </button>
+
+                {/* BOTÃO DUPLO: INICIAR / PARAR */}
+                <button
+                  onClick={isWorking ? stopFetch : handleStartMining}
+                  className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center gap-2 shadow-lg ${
+                    isWorking
+                      ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
+                      : 'bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30'
+                  }`}
+                >
+                  {isWorking ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Parar e Salvar
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Iniciar ({10000 - manualOffset} restantes)
+                    </>
+                  )}
+                </button>
+              </div>
               {/* UPLOAD / DOWNLOAD JSON */}
               <div className="flex gap-2 mr-4">
                 <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">
