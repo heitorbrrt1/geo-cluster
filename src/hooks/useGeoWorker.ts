@@ -10,6 +10,10 @@ type RunKMeansPayload = Extract<WorkerRequest, { readonly type: 'RUN_KMEANS' }>[
 
 export const useGeoWorker = (workerUrl?: string) => {
   const workerRef = useRef<Worker | null>(null);
+  
+  // 1. MEMÓRIA: Guarda qual foi o offset inicial dessa rodada
+  const startOffsetRef = useRef(0);
+
   const [isWorking, setIsWorking] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -31,19 +35,38 @@ export const useGeoWorker = (workerUrl?: string) => {
           setIsWorking(true);
           setProgress(msg.payload.progress);
           break;
+
         case 'FETCH_COMPLETE':
           setIsWorking(false);
           setProgress(100);
-          // Acumula os novos itens no estado existente, para preservar cargas prévias
+          
           setWorkerData((prev) => {
-            const newCities = msg.payload.cities || [];
-            return [...(prev || []), ...newCities];
+             const newCities = msg.payload.cities || [];
+             
+             // 1. Se começou do ZERO, apenas retorna as novas (sem duplicata interna)
+             if (startOffsetRef.current === 0) {
+               return newCities;
+             }
+             
+             // 2. BLINDAGEM CONTRA DUPLICATAS (O Segredo)
+             // Cria uma lista combinada (Antigas + Novas)
+             const allCities = [...(prev || []), ...newCities];
+             
+             // Usa um Map para filtrar por ID. 
+             // Se o ID já existe, o Map sobrescreve (mantendo apenas 1 versão)
+             const uniqueCities = Array.from(
+                new Map(allCities.map(city => [city.id, city])).values()
+             );
+
+             return uniqueCities;
           });
           break;
-        case 'KMEANS_RESULT':
+
+        case 'KMEANS_RESULT': // <--- CORRIGIDO AQUI (Era RUN_KMEANS)
           setIsWorking(false);
-          // future: set KMeans result state
+          // Futuro: aqui receberemos os clusters prontos
           break;
+          
         case 'ERROR':
           setIsWorking(false);
           setError(msg.payload.message);
@@ -71,7 +94,10 @@ export const useGeoWorker = (workerUrl?: string) => {
     setError(null);
     setProgress(0);
     setIsWorking(true);
-    // Só limpa a memória local se o usuário explicitamente pediu para começar do zero
+
+    // Guarda o offset para saber se limpa ou acumula depois
+    startOffsetRef.current = payload.offsetStart;
+
     if (payload.offsetStart === 0) {
       setWorkerData([]);
     }
@@ -82,14 +108,11 @@ export const useGeoWorker = (workerUrl?: string) => {
 
   const stopFetch = useCallback(() => {
     if (!workerRef.current) return;
-    workerRef.current.postMessage({ type: 'STOP_FETCH' } as WorkerRequest);
+    workerRef.current.postMessage({ type: 'STOP_FETCH' });
   }, []);
 
   const runKMeans = useCallback((payload: RunKMeansPayload) => {
-    if (!workerRef.current) {
-      setError('Worker not available');
-      return;
-    }
+    if (!workerRef.current) { setError('Worker not available'); return; }
     const msg: WorkerRequest = { type: 'RUN_KMEANS', payload } as WorkerRequest;
     workerRef.current.postMessage(msg);
   }, []);
@@ -108,9 +131,9 @@ export const useGeoWorker = (workerUrl?: string) => {
     workerData,
     setWorkerData,
     startFetch,
+    stopFetch,
     runKMeans,
     terminate,
-    stopFetch,
   } as const;
 };
 

@@ -120,6 +120,13 @@ export default function GeoClusterPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Função para limpar a memória do worker
+  const handleClearMemory = () => {
+    if (confirm('Deseja apagar todas as cidades da memória local?')) {
+      setWorkerData([]);
+    }
+  };
+
   // Função para ler arquivo JSON e injetar no estado do hook
   const handleLoadFromFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -228,24 +235,35 @@ export default function GeoClusterPage() {
               </div>
               {/* UPLOAD / DOWNLOAD JSON */}
               <div className="flex gap-2 mr-4">
-                <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">
-                  📂 Carregar JSON
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={handleLoadFromFile}
-                  />
-                </label>
+                  {/* Botão de Lixeira */}
+                  {workerData && workerData.length > 0 && !isWorking && (
+                    <button
+                      onClick={handleClearMemory}
+                      className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg border border-red-200"
+                      title="Limpar memória"
+                    >
+                      🗑️
+                    </button>
+                  )}
 
-                {workerData && workerData.length > 0 && (
-                  <button
-                    onClick={handleDownloadData}
-                    className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold"
-                  >
-                    💾 Salvar JSON
-                  </button>
-                )}
+                  <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">
+                    📂 Carregar JSON
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={handleLoadFromFile}
+                    />
+                  </label>
+
+                  {workerData && workerData.length > 0 && (
+                    <button
+                      onClick={handleDownloadData}
+                      className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold"
+                    >
+                      💾 Salvar JSON
+                    </button>
+                  )}
               </div>
             </div>
           </div>

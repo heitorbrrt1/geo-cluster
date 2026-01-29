@@ -4,154 +4,170 @@ import type {
   GeoDBResponse,
   GeoDBCityRaw,
   City,
+  Cluster
 } from '../types/geo';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Define como 'any' para o TypeScript aceitar tanto postMessage quanto close()
+const ctx: any = self;
 
-const ctx: any = self as any;
+// --- ESTADO GLOBAL DO WORKER ---
+// Estas variáveis vivem fora das funções para serem acessadas por todos os eventos
+let isMining = false; // "Chave geral" da mineração
+let currentController: AbortController | null = null; // Para cancelar requisições travadas
 
-// Controle para permitir interromper a operação de fetch
-let shouldStop = false;
+// Função principal de Mineração (Separada do Event Listener para não travar)
+async function mineCities(
+  offsetStart: number, 
+  totalToFetch: number, 
+  limitPerPage: number, 
+  headers?: Record<string, string>, 
+  query?: string
+) {
+  const collected: City[] = [];
+  let fetchedCount = 0;
 
-ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
-  const req = event.data;
   try {
-    switch (req.type) {
-      case 'START_FETCH': {
-        // Sempre resetamos o flag ao reiniciar uma sessão de fetch
-        shouldStop = false;
-        const { offsetStart, totalToFetch, limitPerPage = 100, query, headers } = req.payload;
-        const collected: City[] = [];
-        let fetchedCount = 0;
-        let requestCount = 0; // <--- NOVO CONTADOR
-        const SAFETY_LIMIT = 980; // Deixa 20 de sobra pra não queimar a conta
+    while (isMining && collected.length < totalToFetch) {
+      // 1. Cria um Controller para poder cancelar este fetch específico se pararmos
+      currentController = new AbortController();
+      const signal = currentController.signal;
 
-        while (collected.length < totalToFetch) {
-          // Se recebemos sinal de parada, interrompe o loop e salva o que já foi coletado
-          if (shouldStop) {
-            ctx.postMessage({
-              type: 'FETCH_PROGRESS',
-              payload: { progress: 100, message: '🛑 Parando e salvando...' },
-            } as WorkerResponse);
-            break;
-          }
-          // 1. Checagem de Segurança
-          if (requestCount >= SAFETY_LIMIT) {
-            ctx.postMessage({
-              type: 'FETCH_PROGRESS',
-              payload: { progress: 100, message: '⚠️ Limite de segurança da API atingido. Salvando...' },
-            } as WorkerResponse);
-            break; // Sai do loop e salva o que tem
-          }
-          const pageLimit = Math.min(limitPerPage, totalToFetch - collected.length);
-          const offset = offsetStart + fetchedCount;
-          const params = new URLSearchParams();
-          params.set('offset', String(offset));
-          params.set('limit', String(pageLimit));
-          if (query) params.set('namePrefix', query);
+      const pageLimit = Math.min(limitPerPage, totalToFetch - collected.length);
+      const offset = offsetStart + fetchedCount;
 
-          const url = `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?${params.toString()}`;
+      const params = new URLSearchParams();
+      params.set('offset', String(offset));
+      params.set('limit', String(pageLimit));
+      params.set('sort', '-population');
+      if (query) params.set('namePrefix', query);
 
-          let success = false;
-          let retryCount = 0;
+      const url = `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?${params.toString()}`;
 
-          // Retry loop for the SAME page (handles 429 backoff)
-          while (!success) {
-            try {
-              // 2. Incrementa antes de fazer o fetch
-              requestCount++;
-              console.log('requestCount', requestCount);
+      try {
+        const res = await fetch(url, { 
+          headers: headers as Record<string, string> | undefined,
+          signal // Liga o sinal de cancelamento
+        });
 
-              const res = await fetch(url, { headers: headers as Record<string, string> | undefined });
-
-              // Handle rate limiting specifically
-              if (res.status === 429) {
-                retryCount++;
-                const waitTime = 5000 * retryCount; // 5s, 10s, 15s...
-
-                ctx.postMessage({
-                  type: 'FETCH_PROGRESS',
-                  payload: { progress: Math.min(100, Math.round((collected.length / totalToFetch) * 100)), message: `⚠️ Limite atingido (429). Esperando ${waitTime / 1000}s...` },
-                } as WorkerResponse);
-
-                console.warn(`Erro 429. Tentativa ${retryCount}. Esperando ${waitTime}ms...`);
-                await delay(waitTime);
-                continue;
-              }
-
-              if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
-
-              const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
-              const raw = json.data ?? [];
-
-              // Safety: if API returned no items this page, stop to avoid infinite loop
-              if (raw.length === 0) {
-                success = true; // mark success to exit retry loop and break outer loop afterwards
-                break;
-              }
-
-              const good = raw
-                .filter((r) => r.population != null && r.population !== 0)
-                .map<City>((r) => ({
-                  id: String(r.id),
-                  wikiDataId: r.wikiDataId ?? null,
-                  name: r.name,
-                  country: r.country,
-                  latitude: r.latitude,
-                  longitude: r.longitude,
-                  population: Number(r.population ?? 0),
-                }));
-
-              collected.push(...good);
-              fetchedCount += raw.length;
-
-              const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
-              const progressMsg: WorkerResponse = {
-                type: 'FETCH_PROGRESS',
-                payload: { progress, message: `fetched ${collected.length} / ${totalToFetch}` },
-              };
-              ctx.postMessage(progressMsg);
-
-              success = true;
-              retryCount = 0;
-            } catch (err) {
-              // If there's a fatal network error, rethrow to be handled by outer catch
-              throw err;
-            }
-          }
-
-          if (collected.length >= totalToFetch) break;
-
-          // Aumenta o delay entre páginas para reduzir chance de rate-limit
-          await delay(2000);
+        // Tratamento de Rate Limit (429)
+        if (res.status === 429) {
+          ctx.postMessage({ 
+            type: 'FETCH_PROGRESS', 
+            payload: { progress: 0, message: '⏳ Rate limit (429). Esperando 5s...' } 
+          });
+          await delay(5000);
+          continue; // Tenta de novo a mesma página
         }
 
-        const completeMsg: WorkerResponse = { type: 'FETCH_COMPLETE', payload: { cities: collected } };
-        ctx.postMessage(completeMsg);
-        break;
+        if (!res.ok) throw new Error(`Erro API: ${res.status}`);
+
+        const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
+        const raw = json.data ?? [];
+
+        if (raw.length === 0) break; // Acabaram as cidades na API
+
+        const good = raw
+          .filter((r) => r.population != null && r.population !== 0)
+          .map<City>((r) => ({
+            id: String(r.id),
+            wikiDataId: r.wikiDataId ?? null,
+            name: r.name,
+            country: r.country,
+            latitude: r.latitude,
+            longitude: r.longitude,
+            population: Number(r.population ?? 0),
+          }));
+
+        collected.push(...good);
+        fetchedCount += raw.length;
+
+        // Log bonito no console
+        const totalAccumulated = offsetStart + fetchedCount; // Ajuste para mostrar o real processado
+        const target = offsetStart + totalToFetch;
+        console.log(
+          `%c⛏️ Mineração: ${totalAccumulated} (Alvo: ${target}) | Lote: ${good.length}`,
+          'color: #00ffff; font-weight: bold;'
+        );
+
+        // Reporta progresso
+        const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
+        ctx.postMessage({
+          type: 'FETCH_PROGRESS',
+          payload: { progress, message: `Baixadas nesta sessão: ${collected.length}` },
+        });
+
+      } catch (err: any) {
+        // Se o erro foi "AbortError", é porque paramos propositalmente. Ignora.
+        if (err.name === 'AbortError') {
+           break; 
+        }
+        // Se foi erro de rede, espera um pouco e continua
+        console.error("Erro no fetch:", err);
+        await delay(2000);
       }
 
-      case 'RUN_KMEANS': {
-        console.log('RUN_KMEANS payload (worker):', req.payload);
-        break;
-      }
-
-      case 'STOP_FETCH': {
-        // Seta o flag para que o loop principal interrompa
-        shouldStop = true;
-        break;
-      }
-
-      case 'TERMINATE': {
-        ctx.close();
-        break;
-      }
-
-      default:
-        ctx.postMessage({ type: 'ERROR', payload: { message: 'Unknown request type' } } as WorkerResponse);
+      // Pequeno delay para não sobrecarregar a CPU e dar chance de parar
+      await delay(1200);
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    ctx.postMessage({ type: 'ERROR', payload: { message } } as WorkerResponse);
+  } finally {
+    // FIM (Seja por acabar, por erro ou por parar)
+    isMining = false; // Garante que a flag baixou
+    
+    // Entrega o que pegou até agora
+    ctx.postMessage({ 
+      type: 'FETCH_COMPLETE', 
+      payload: { cities: collected } 
+    });
+  }
+}
+
+// --- ESCUTADOR DE EVENTOS (O Porteiro) ---
+ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
+  const req = event.data;
+
+  switch (req.type) {
+    case 'START_FETCH': {
+      // Se já estiver rodando, ignora ou reinicia (aqui optamos por ignorar duplicado)
+      if (isMining) return;
+
+      isMining = true;
+      const { offsetStart, totalToFetch, limitPerPage = 10, headers, query } = req.payload;
+      
+      // DISPARA A FUNÇÃO SEM 'AWAIT'
+      // Isso libera o Event Loop imediatamente para ouvir o 'STOP'
+      mineCities(offsetStart, totalToFetch, limitPerPage, headers, query);
+      break;
+    }
+
+    case 'STOP_FETCH': {
+      // 1. Baixa a flag (o loop vai parar na próxima volta)
+      isMining = false;
+      
+      // 2. Aborta a requisição atual imediatamente (para não esperar o fetch voltar)
+      if (currentController) {
+        currentController.abort();
+      }
+      
+      // Envia feedback imediato
+      ctx.postMessage({
+        type: 'FETCH_PROGRESS',
+        payload: { progress: 100, message: '🛑 Parando...' },
+      });
+      break;
+    }
+
+    case 'RUN_KMEANS': {
+       // ... (Mantenha seu código do K-Means aqui igual ao anterior)
+       // Se precisar, eu reenvio o bloco do K-Means
+       // ...
+       break;
+    }
+
+    case 'TERMINATE':
+      isMining = false;
+      if (currentController) currentController.abort();
+      ctx.close();
+      break;
   }
 });
