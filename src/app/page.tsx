@@ -1,8 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import dynamic from 'next/dynamic';
 import { useGeoWorker } from '@/hooks/useGeoWorker';
 import type { City, GeoDBCityRaw, GeoDBResponse } from '@/types/geo';
+
+// Importação dinâmica para evitar erro de 'window is not defined' no Leaflet
+const ClusterMap = dynamic(() => import('@/components/ClusterMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full bg-slate-100 animate-pulse flex items-center justify-center rounded-2xl text-slate-400 font-medium">
+      Carregando Mapa...
+    </div>
+  ),
+});
 
 export default function GeoClusterPage() {
   const [manualCities, setManualCities] = useState<readonly City[]>([]);
@@ -56,9 +67,6 @@ export default function GeoClusterPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchManualCities(0);
-  }, [fetchManualCities]);
 
   const handleNextPage = () => {
     const newOffset = offset + 10;
@@ -132,7 +140,6 @@ export default function GeoClusterPage() {
     }
   };
 
-  // Função para ler arquivo JSON e injetar no estado do hook
   const handleLoadFromFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -142,12 +149,15 @@ export default function GeoClusterPage() {
       try {
         const content = e.target?.result as string;
         const loadedCities = JSON.parse(content) as City[];
-        setWorkerData(loadedCities);
+        
+        setWorkerData(loadedCities); // Manda para o Worker (K-Means)
+        setManualCities(loadedCities); // <--- ADICIONE ISSO (Mostra na lista da esquerda)
+        
         console.log(`Carregadas ${loadedCities.length} cidades do arquivo!`);
-        alert(`Sucesso! ${loadedCities.length} cidades carregadas. Pode rodar o K-Means agora.`);
+        alert(`Sucesso! ${loadedCities.length} cidades carregadas.`);
       } catch (err) {
         console.error(err);
-        alert('Erro ao ler JSON. O formato está errado?');
+        alert('Erro ao ler JSON.');
       }
     };
     reader.readAsText(file);
@@ -331,8 +341,9 @@ export default function GeoClusterPage() {
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <main className="max-w-7xl mx-auto p-6 space-y-6"> {/* Adicione space-y-6 para dar espaçamento vertical */}
+        {/* PARTE 1: AS DUAS COLUNAS (LADO A LADO) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-150"> {/* Altura fixa ajuda a manter o layout estável */}
           
           {/* COLUNA ESQUERDA: EXPLORADOR API */}
           <section className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
@@ -368,7 +379,7 @@ export default function GeoClusterPage() {
                   <span className="text-sm font-medium text-slate-600">Página</span>
                   <span className="text-sm font-bold text-slate-900">{Math.floor(offset / 10) + 1}</span>
                   <span className="text-sm text-slate-400">/</span>
-                  <span className="text-sm text-slate-600">{Math.ceil((totalCount ?? 0) / 10)}</span>
+                  <span className="text-sm text-slate-600">1000</span>
                 </div>
 
                 <button
@@ -460,123 +471,122 @@ export default function GeoClusterPage() {
             </div>
           </section>
 
-          {/* COLUNA DIREITA: REPOSITÓRIO LOCAL */}
-          <section className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-            <div className="bg-linear-to-r from-indigo-50 to-purple-50 px-6 py-4 border-b border-slate-200">
-              <div className="flex items-center justify-between mb-4">
+          {/* COLUNA DIREITA: LISTA DE CLUSTERS (Volta a ser apenas lista) */}
+          <section className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
+            
+            {/* CABEÇALHO DA COLUNA */}
+            <div className={`px-6 py-4 border-b border-slate-200 ${clusters.length > 0 ? 'bg-purple-50' : 'bg-linear-to-r from-indigo-50 to-purple-50'}`}>
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                    </svg>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${clusters.length > 0 ? 'bg-purple-100' : 'bg-indigo-100'}`}>
+                    {clusters.length > 0 ? (
+                      <span className="text-xl">🧠</span>
+                    ) : (
+                      <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                      </svg>
+                    )}
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-slate-900">Repositório Local</h2>
-                    <p className="text-xs text-slate-500">Suas cidades selecionadas</p>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      {clusters.length > 0 ? 'Resultado do K-Means' : 'Repositório Local'}
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      {clusters.length > 0 ? `${clusters.length} grupos formados` : 'Suas cidades selecionadas'}
+                    </p>
                   </div>
                 </div>
-                
-                {selectedCities.length > 0 && (
-                  <button
-                    onClick={() => setSelectedCities([])}
-                    className="px-4 py-2 bg-white hover:bg-red-50 text-red-600 rounded-lg font-medium transition-all border border-red-200 hover:border-red-300 flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Limpar Tudo
-                  </button>
-                )}
               </div>
-
-              {/* SEARCH BAR */}
-              {selectedCities.length > 0 && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Buscar nas selecionadas..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 pl-11 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-                  />
-                  <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-              )}
             </div>
 
-            {/* LISTA DE SELECIONADAS */}
-            <div className="p-4 h-[calc(100vh-400px)] overflow-y-auto">
-              {selectedCities.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50">
-                  <svg className="w-20 h-20 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                  </svg>
-                  <p className="font-semibold text-slate-600 mb-1">Repositório vazio</p>
-                  <p className="text-sm text-slate-400">Selecione cidades do explorador</p>
-                </div>
-              ) : filteredSelectedCities.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full">
-                  <svg className="w-16 h-16 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <p className="font-medium text-slate-600">Nenhum resultado encontrado</p>
-                  <p className="text-sm text-slate-400">Tente outro termo de busca</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredSelectedCities.map((city, index) => (
-                    <div
-                      key={city.id}
-                      className="group bg-linear-to-r from-slate-50 to-indigo-50 border border-indigo-200 rounded-xl p-4 transition-all duration-300 hover:shadow-lg hover:scale-[1.02]"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="w-8 h-8 bg-indigo-600 text-white rounded-lg flex items-center justify-center text-sm font-bold">
-                              {index + 1}
-                            </span>
-                            <h3 className="font-bold text-slate-900 text-lg">{city.name}</h3>
+            {/* LISTA DE CONTEÚDO */}
+            <div className="p-4 overflow-y-auto flex-1">
+              
+              {/* CENÁRIO 1: MOSTRAR CLUSTERS (SE O K-MEANS RODOU) */}
+              {clusters.length > 0 ? (
+                <div className="space-y-6">
+                  {clusters.map((cluster, i) => (
+                    <div key={i} className="border border-purple-200 rounded-xl overflow-hidden shadow-sm">
+                      {/* Cabeçalho do Grupo */}
+                      <div className="bg-purple-100 px-4 py-2 flex justify-between items-center">
+                        <span className="font-bold text-purple-900">Grupo {i + 1}</span>
+                        <span className="text-xs bg-white text-purple-700 px-2 py-1 rounded-full font-bold border border-purple-200">
+                          {cluster.members.length} cidades
+                        </span>
+                      </div>
+                      
+                      {/* Detalhes do Centróide */}
+                      <div className="bg-purple-50 px-4 py-2 text-xs text-purple-600 border-b border-purple-100 flex gap-4">
+                        <span>📍 Centro Lat: {cluster.centroid.coords[0].toFixed(2)}</span>
+                        <span>📍 Centro Lon: {cluster.centroid.coords[1].toFixed(2)}</span>
+                      </div>
+
+                      {/* Lista das primeiras 5 cidades do grupo (Amostra) */}
+                      <div className="p-2 space-y-1">
+                        {cluster.members.slice(0, 5).map((member: any) => (
+                          <div key={member.id} className="text-sm text-slate-600 px-2 py-1 bg-white rounded border border-slate-100 flex justify-between">
+                            <span>{member.name}</span>
+                            <span className="text-xs text-slate-400">{member.country}</span>
                           </div>
-                          
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            <div className="flex items-center gap-1 text-slate-600">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                              </svg>
-                              <span className="font-medium">Lat:</span>
-                              <span className="text-slate-500">{city.latitude.toFixed(4)}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-slate-600">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                              </svg>
-                              <span className="font-medium">Lon:</span>
-                              <span className="text-slate-500">{city.longitude.toFixed(4)}</span>
-                            </div>
+                        ))}
+                        {cluster.members.length > 5 && (
+                          <div className="text-xs text-center text-slate-400 italic py-1">
+                            + {cluster.members.length - 5} outras cidades...
                           </div>
-                        </div>
-                        
-                        <button
-                          onClick={() => handleRemoveCity(city.id)}
-                          className="ml-4 w-10 h-10 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-lg transition-all duration-300 flex items-center justify-center group-hover:scale-110"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
+              ) : (
+                /* CENÁRIO 2: MOSTRAR SELEÇÃO MANUAL (SE NÃO RODOU K-MEANS) */
+                selectedCities.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 min-h-50">
+                    <p className="font-semibold text-slate-600 mb-1">Repositório vazio</p>
+                    <p className="text-sm text-slate-400">Selecione cidades ou rode o K-Means</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredSelectedCities.map((city, index) => (
+                      <div key={city.id} className="group bg-linear-to-r from-slate-50 to-indigo-50 border border-indigo-200 rounded-xl p-4">
+                         <div className="flex justify-between">
+                            <span className="font-bold">{city.name}</span>
+                            <button onClick={() => handleRemoveCity(city.id)} className="text-red-500 hover:text-red-700">Remover</button>
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           </section>
         </div>
+
+        {/* PARTE 2: O MAPA (EMBAIXO, LARGURA TOTAL) */}
+        {/* Só mostramos essa seção se o K-Means já tiver rodado */}
+        {clusters.length > 0 && (
+          <section className="w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-700">
+            {/* Cabeçalho do Mapa */}
+            <div className="px-6 py-4 border-b border-slate-200 bg-linear-to-r from-emerald-50 to-teal-50 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-xl">
+                  🌍
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Mapa de Clusters</h2>
+                  <p className="text-xs text-slate-500">Visualização geoespacial dos grupos</p>
+                </div>
+              </div>
+            </div>
+
+            {/* O Mapa em si */}
+            <div className="h-150 w-full p-1 bg-slate-50"> 
+              {/* Altura de 600px garante uma ótima visualização */}
+              <ClusterMap clusters={clusters} />
+            </div>
+          </section>
+        )}
+
       </main>
     </div>
   );

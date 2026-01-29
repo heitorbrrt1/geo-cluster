@@ -4,7 +4,8 @@ import type {
   GeoDBResponse,
   GeoDBCityRaw,
   City,
-  Cluster
+  Cluster,
+  NormalizedCity,
 } from '../types/geo';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,7 +124,7 @@ async function mineCities(
 }
 
 // --- ESCUTADOR DE EVENTOS (O Porteiro) ---
-ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
+ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
 
   switch (req.type) {
@@ -158,115 +159,97 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     }
 
     case 'RUN_KMEANS': {
-      const { cities, k, maxIterations = 50 } = req.payload;
+      const { cities, k, maxIterations = 50 } = req.payload as {
+        readonly cities: readonly City[];
+        readonly k: number;
+        readonly maxIterations?: number;
+      };
 
       if (!cities || cities.length === 0) {
         ctx.postMessage({ type: 'ERROR', payload: { message: 'Sem dados para agrupar.' } });
         break;
       }
 
-      // 1. Preparação (Normalização simples se necessário, aqui usaremos Lat/Lon brutos para simplicidade geográfica inicial)
-      // Se quiser "normalizar" matematicamente, faríamos aqui.
-      // Para Geo, usar lat/lon direto funciona para escalas globais se não precisarmos de precisão de metros.
-      
-      // 2. Inicialização: Escolhe K centróides aleatórios
-      let centroids = cities
-        .sort(() => 0.5 - Math.random()) // Embaralha
-        .slice(0, k) // Pega K
-        .map(c => ({ lat: c.latitude, lon: c.longitude }));
+      type LocalCentroid = { lat: number; lon: number };
 
-      let clusters: any[] = [];
+      // copia mutável para embaralhar
+      const citiesCopy: City[] = [...cities];
+      // 2. Inicialização: Escolhe K centróides aleatórios
+      const shuffled = citiesCopy.sort(() => 0.5 - Math.random());
+      let centroids: LocalCentroid[] = shuffled
+        .slice(0, k)
+        .map((c: City) => ({ lat: c.latitude, lon: c.longitude }));
+
+      let clustersResult: Cluster[] = [];
       let hasConverged = false;
       let iterations = 0;
 
-      // 3. Loop do Algoritmo
       while (!hasConverged && iterations < maxIterations) {
         iterations++;
-        
-        // A. Cria clusters vazios
-        const newClusters = centroids.map((centroid, index) => ({
+
+        const newClusters: Cluster[] = centroids.map((centroid: LocalCentroid, index: number) => ({
           id: String(index),
           centroid: { id: String(index), coords: [centroid.lat, centroid.lon] },
-          members: [] as any[] // Vamos guardar as cidades aqui
+          members: [] as NormalizedCity[],
         }));
 
-        // B. Atribuição (Assignment)
+        // Assignment
         for (const city of cities) {
           let minDistance = Infinity;
           let closestClusterIndex = 0;
 
-          centroids.forEach((centroid, index) => {
-            // Distância Euclidiana (Lat/Lon)
+          centroids.forEach((centroid: LocalCentroid, index: number) => {
             const dist = Math.sqrt(
-              Math.pow(city.latitude - centroid.lat, 2) + 
+              Math.pow(city.latitude - centroid.lat, 2) +
               Math.pow(city.longitude - centroid.lon, 2)
             );
-
             if (dist < minDistance) {
               minDistance = dist;
               closestClusterIndex = index;
             }
           });
 
-          // Adiciona a cidade ao cluster mais próximo
-          // Nota: Estamos adaptando para caber no tipo NormalizedCity do seu Cluster interface
-          // Se o tipo reclamar, ajuste para City, mas aqui simulamos a estrutura.
-          newClusters[closestClusterIndex].members.push({
+          const member: NormalizedCity = {
             id: city.id,
             name: city.name,
             country: city.country,
-            latNorm: city.latitude, // Usando bruto por enquanto
+            latNorm: city.latitude,
             lonNorm: city.longitude,
             popNorm: city.population,
-            original: city
-          });
+            original: city,
+          };
+
+          (newClusters[closestClusterIndex].members as NormalizedCity[]).push(member);
         }
 
-        // C. Atualização (Update) - Recalcula centróides
         let maxCentroidShift = 0;
-        
-        const newCentroids = newClusters.map((cluster, i) => {
-          if (cluster.members.length === 0) return centroids[i]; // Mantém se vazio
 
-          const sumLat = cluster.members.reduce((sum, p) => sum + p.original.latitude, 0);
-          const sumLon = cluster.members.reduce((sum, p) => sum + p.original.longitude, 0);
+        const newCentroids = newClusters.map((cluster: Cluster, i: number) => {
+          if (!cluster.members || cluster.members.length === 0) return centroids[i];
+
+          const sumLat = cluster.members.reduce((sum: number, p: NormalizedCity) => sum + p.original.latitude, 0);
+          const sumLon = cluster.members.reduce((sum: number, p: NormalizedCity) => sum + p.original.longitude, 0);
 
           const newLat = sumLat / cluster.members.length;
           const newLon = sumLon / cluster.members.length;
 
-          // Calcula o quanto moveu
-          const shift = Math.sqrt(
-            Math.pow(newLat - centroids[i].lat, 2) + 
-            Math.pow(newLon - centroids[i].lon, 2)
-          );
+          const shift = Math.sqrt(Math.pow(newLat - centroids[i].lat, 2) + Math.pow(newLon - centroids[i].lon, 2));
           if (shift > maxCentroidShift) maxCentroidShift = shift;
 
-          return { lat: newLat, lon: newLon };
+          return { lat: newLat, lon: newLon } as LocalCentroid;
         });
 
         centroids = newCentroids;
-        clusters = newClusters;
+        clustersResult = newClusters;
 
-        // Verifica convergência (se moveu muito pouco, paramos)
         if (maxCentroidShift < 0.001) hasConverged = true;
 
-        // Reporta progresso
-        ctx.postMessage({
-          type: 'FETCH_PROGRESS',
-          payload: { 
-            progress: Math.round((iterations / maxIterations) * 100), 
-            message: `K-Means: Iteração ${iterations}` 
-          }
-        });
+        ctx.postMessage({ type: 'FETCH_PROGRESS', payload: { progress: Math.round((iterations / maxIterations) * 100), message: `K-Means: Iteração ${iterations}` } });
 
-        await delay(10); // Respira
+        await delay(10);
       }
 
-      // 4. Envia Resultado Final
-      ctx.postMessage({ 
-        type: 'KMEANS_RESULT', 
-        payload: { clusters: clusters, iterations } 
-      });
+      ctx.postMessage({ type: 'KMEANS_RESULT', payload: { clusters: clustersResult, iterations } });
       break;
     }
 
