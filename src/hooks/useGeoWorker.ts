@@ -3,6 +3,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
   City,
+  Cluster,
 } from '../types/geo';
 
 type StartFetchPayload = Extract<WorkerRequest, { readonly type: 'START_FETCH' }>['payload'];
@@ -18,6 +19,7 @@ export const useGeoWorker = (workerUrl?: string) => {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [workerData, setWorkerData] = useState<readonly City[] | null>(null);
+  const [clusters, setClusters] = useState<readonly Cluster[]>([]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -62,9 +64,10 @@ export const useGeoWorker = (workerUrl?: string) => {
           });
           break;
 
-        case 'KMEANS_RESULT': // <--- CORRIGIDO AQUI (Era RUN_KMEANS)
+        case 'KMEANS_RESULT':
           setIsWorking(false);
-          // Futuro: aqui receberemos os clusters prontos
+          setClusters(msg.payload.clusters);
+          alert(`Agrupamento concluído em ${msg.payload.iterations} iterações!`);
           break;
           
         case 'ERROR':
@@ -111,10 +114,13 @@ export const useGeoWorker = (workerUrl?: string) => {
     workerRef.current.postMessage({ type: 'STOP_FETCH' });
   }, []);
 
-  const runKMeans = useCallback((payload: RunKMeansPayload) => {
+  const runKMeans = useCallback((payload: { cities: readonly City[]; k: number }) => {
     if (!workerRef.current) { setError('Worker not available'); return; }
-    const msg: WorkerRequest = { type: 'RUN_KMEANS', payload } as WorkerRequest;
-    workerRef.current.postMessage(msg);
+    // Monta a mensagem manualmente para garantir tipagem
+    workerRef.current.postMessage({ 
+      type: 'RUN_KMEANS', 
+      payload: { cities: payload.cities, k: payload.k } 
+    } as WorkerRequest);
   }, []);
 
   const terminate = useCallback(() => {
@@ -129,6 +135,7 @@ export const useGeoWorker = (workerUrl?: string) => {
     progress,
     error,
     workerData,
+    clusters,
     setWorkerData,
     startFetch,
     stopFetch,

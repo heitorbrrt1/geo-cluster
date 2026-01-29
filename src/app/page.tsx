@@ -13,7 +13,7 @@ export default function GeoClusterPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [manualOffset, setManualOffset] = useState(0);
 
-  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
+  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData, runKMeans, clusters } = useGeoWorker();
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
     setLoadingManual(true);
@@ -118,6 +118,11 @@ export default function GeoClusterPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleRunKMeans = () => {
+    if (!workerData || workerData.length === 0) return;
+    runKMeans({ cities: workerData, k: 5 });
   };
 
   // Função para limpar a memória do worker
@@ -262,6 +267,15 @@ export default function GeoClusterPage() {
                       className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-2 rounded text-sm font-bold"
                     >
                       💾 Salvar JSON
+                    </button>
+                  )}
+                  {/* Botão K-Means - Só aparece se tiver dados e não estiver trabalhando */}
+                  {workerData && workerData.length > 0 && !isWorking && (
+                    <button
+                      onClick={handleRunKMeans}
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm font-bold shadow-lg"
+                    >
+                      🧠 Agrupar (K=5)
                     </button>
                   )}
               </div>

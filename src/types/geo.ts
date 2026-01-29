@@ -50,10 +50,9 @@ export type WorkerRequest =
   | {
       readonly type: 'RUN_KMEANS';
       readonly payload: {
-        readonly data: readonly NormalizedCity[];
+        readonly cities: readonly City[];
         readonly k: number;
         readonly maxIterations?: number;
-        readonly seed?: number;
       };
     }
   | { readonly type: 'STOP_FETCH' }
