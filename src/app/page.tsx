@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useState, useCallback, ChangeEvent, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useGeoWorker } from '@/hooks/useGeoWorker';
 import { useKMeansCluster } from '@/hooks/useKMeansCluster';
@@ -26,6 +26,7 @@ export default function GeoClusterPage() {
   const [manualOffset, setManualOffset] = useState(0);
   const [kValue, setKValue] = useState(5);
   const [selectedClusterForModal, setSelectedClusterForModal] = useState<number | null>(null);
+  const cacheRef = useRef<Map<number, City[]>>(new Map());
 
   const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
   
@@ -45,6 +46,13 @@ export default function GeoClusterPage() {
   const clusters = kmeansCluster.clusters;
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
+    // Verifica cache primeiro
+    if (cacheRef.current.has(currentOffset)) {
+      console.log(`💾 [CACHE] Página ${currentOffset} carregada do cache`);
+      setManualCities(cacheRef.current.get(currentOffset)!);
+      return;
+    }
+
     setLoadingManual(true);
     try {
       const limit = 10;
@@ -75,6 +83,10 @@ export default function GeoClusterPage() {
           population: Number(raw.population),
         }));
 
+      // Salva no cache
+      cacheRef.current.set(currentOffset, validCities);
+      console.log(`📥 [API] Página ${currentOffset} buscada e cacheada`);
+
       setManualCities(validCities);
       setTotalCount(json.totalCount);
     } catch (err) {
@@ -86,30 +98,30 @@ export default function GeoClusterPage() {
   }, []);
 
 
-  const handleNextPage = () => {
+  const handleNextPage = useCallback(() => {
     const newOffset = offset + 10;
     setOffset(newOffset);
     fetchManualCities(newOffset);
-  };
+  }, [offset, fetchManualCities]);
 
-  const handlePrevPage = () => {
+  const handlePrevPage = useCallback(() => {
     if (offset === 0) return;
     const newOffset = offset - 10;
     setOffset(newOffset);
     fetchManualCities(newOffset);
-  };
+  }, [offset, fetchManualCities]);
 
-  const handleSelectCity = (city: City) => {
+  const handleSelectCity = useCallback((city: City) => {
     if (!selectedCities.some((c) => c.id === city.id)) {
       setSelectedCities((prev) => [...prev, city]); 
     }
-  };
+  }, [selectedCities]);
 
-  const handleRemoveCity = (cityId: string) => {
+  const handleRemoveCity = useCallback((cityId: string) => {
     setSelectedCities((prev) => prev.filter((c) => c.id !== cityId));
-  };
+  }, []);
 
-  const handleStartMining = () => {
+  const handleStartMining = useCallback(() => {
     const targetTotal = 10000;
     const offsetStart = Number(manualOffset) || 0;
     const missing = targetTotal - offsetStart;
@@ -128,10 +140,10 @@ export default function GeoClusterPage() {
         'X-RapidAPI-Host': process.env.NEXT_PUBLIC_RAPIDAPI_HOST || '',
       }
     });
-  };
+  }, [manualOffset, startFetch]);
 
   // Função para disparar o download do JSON gerado pelo worker
-  const handleDownloadData = () => {
+  const handleDownloadData = useCallback(() => {
     if (!workerData || workerData.length === 0) return;
 
     const jsonString = JSON.stringify(workerData, null, 2);
@@ -144,21 +156,21 @@ export default function GeoClusterPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  };
+  }, [workerData]);
 
-  const handleRunKMeans = () => {
+  const handleRunKMeans = useCallback(() => {
     if (!workerData || workerData.length === 0) return;
     kmeansCluster.runKMeans(workerData, kValue);
-  };
+  }, [workerData, kValue, kmeansCluster]);
 
   // Função para limpar a memória do worker
-  const handleClearMemory = () => {
+  const handleClearMemory = useCallback(() => {
     if (confirm('Deseja apagar todas as cidades da memória local?')) {
       setWorkerData([]);
     }
-  };
+  }, [setWorkerData]);
 
-  const handleLoadFromFile = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleLoadFromFile = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -179,20 +191,107 @@ export default function GeoClusterPage() {
       }
     };
     reader.readAsText(file);
-  };
+  }, [setWorkerData]);
 
-  const filteredSelectedCities = selectedCities.filter(city =>
-    city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    city.country.toLowerCase().includes(searchTerm.toLowerCase())
+  // Memoiza filtro de cidades selecionadas para evitar re-cálculo a cada render
+  const filteredSelectedCities = useMemo(() => 
+    selectedCities.filter(city =>
+      city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      city.country.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    [selectedCities, searchTerm]
   );
 
-  const handleOpenClusterModal = (clusterIndex: number) => {
+  const handleOpenClusterModal = useCallback((clusterIndex: number) => {
     setSelectedClusterForModal(clusterIndex);
-  };
+  }, []);
 
-  const handleCloseClusterModal = () => {
+  const handleCloseClusterModal = useCallback(() => {
     setSelectedClusterForModal(null);
-  };
+  }, []);
+
+  // Memoiza lista de cidades para evitar re-render ao digitar
+  const cityCards = useMemo(() => {
+    if (loadingManual) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-slate-400">
+          <svg className="animate-spin h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+          </svg>
+          <p className="font-medium">Carregando cidades...</p>
+        </div>
+      );
+    }
+    
+    if (manualCities.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-slate-400">
+          <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="font-medium">Nenhuma cidade encontrada</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {manualCities.map((city) => (
+          <div
+            key={city.id}
+            className="group bg-slate-50 hover:bg-linear-to-r hover:from-blue-50 hover:to-indigo-50 border border-slate-200 rounded-xl p-4 transition-all duration-300 hover:shadow-lg hover:scale-[1.02]"
+          >
+            <div className="flex justify-between items-start">
+              <div className="flex-1">
+                <h3 className="font-bold text-slate-900 text-lg mb-1">{city.name}</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-white rounded-lg text-xs font-medium text-slate-600 border border-slate-200">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                    </svg>
+                    {city.country}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-sm text-slate-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  {city.population.toLocaleString()}
+                </div>
+              </div>
+              
+              <button
+                onClick={() => handleSelectCity(city)}
+                disabled={selectedCities.some((c) => c.id === city.id)}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 ${
+                  selectedCities.some((c) => c.id === city.id)
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50'
+                }`}
+              >
+                {selectedCities.some((c) => c.id === city.id) ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Adicionada
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Adicionar
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }, [manualCities, loadingManual, selectedCities, handleSelectCity]);
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -230,22 +329,27 @@ export default function GeoClusterPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                {/* CAMPO DE OFFSET MANUAL (Só aparece se não estiver rodando) */}
+                {/* CAMPOS DE CONFIGURAÇÃO (Só aparecem se não estiver rodando) */}
                 {!isWorking && !kmeansCluster.isRunning && (
                   <div className="flex gap-3">
-                    <div className="flex flex-col">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
-                        Começar do Offset
-                      </label>
-                      <input 
-                        type="number" 
-                        value={manualOffset}
-                        onChange={(e) => setManualOffset(Number(e.target.value))}
-                        className="w-24 px-3 py-3 rounded-xl border border-slate-200 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                        placeholder="0"
-                        min={0}
-                      />
-                    </div>
+                    {/* CAMPO DE OFFSET MANUAL (Só se não tiver dados carregados) */}
+                    {(!workerData || workerData.length === 0) && (
+                      <div className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                          Começar do Offset
+                        </label>
+                        <input 
+                          type="number" 
+                          value={manualOffset}
+                          onChange={(e) => setManualOffset(Number(e.target.value))}
+                          className="w-24 px-3 py-3 rounded-xl border border-slate-200 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                          placeholder="0"
+                          min={0}
+                        />
+                      </div>
+                    )}
+                    
+                    {/* CAMPO K (Sempre visível quando não está rodando) */}
                     <div className="flex flex-col">
                       <label className="text-[10px] font-bold text-purple-600 uppercase ml-1">
                         Cluster K
@@ -467,77 +571,7 @@ export default function GeoClusterPage() {
 
             {/* LISTA DE CIDADES */}
             <div className="p-4 h-[calc(100vh-400px)] overflow-y-auto">
-              {loadingManual ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                  <svg className="animate-spin h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                  </svg>
-                  <p className="font-medium">Carregando cidades...</p>
-                </div>
-              ) : manualCities.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                  <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="font-medium">Nenhuma cidade encontrada</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {manualCities.map((city) => (
-                    <div
-                      key={city.id}
-                      className="group bg-slate-50 hover:bg-linear-to-r hover:from-blue-50 hover:to-indigo-50 border border-slate-200 rounded-xl p-4 transition-all duration-300 hover:shadow-lg hover:scale-[1.02]"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h3 className="font-bold text-slate-900 text-lg mb-1">{city.name}</h3>
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-white rounded-lg text-xs font-medium text-slate-600 border border-slate-200">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
-                              </svg>
-                              {city.country}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 text-sm text-slate-500">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
-                            {city.population.toLocaleString()}
-                          </div>
-                        </div>
-                        
-                        <button
-                          onClick={() => handleSelectCity(city)}
-                          disabled={selectedCities.some((c) => c.id === city.id)}
-                          className={`px-4 py-2 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 ${
-                            selectedCities.some((c) => c.id === city.id)
-                              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                              : 'bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50'
-                          }`}
-                        >
-                          {selectedCities.some((c) => c.id === city.id) ? (
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Adicionada
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                              </svg>
-                              Adicionar
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {cityCards}
             </div>
           </section>
 

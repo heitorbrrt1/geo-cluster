@@ -1,24 +1,28 @@
 "use client";
 
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Cluster } from '@/types/geo';
 
-// Cores para diferenciar os 5 grupos
-const COLORS = [
-  '#ef4444', // Vermelho (Grupo 1)
-  '#3b82f6', // Azul (Grupo 2)
-  '#10b981', // Verde (Grupo 3)
-  '#f59e0b', // Laranja (Grupo 4)
-  '#8b5cf6', // Roxo (Grupo 5)
-];
+// Função para gerar K cores distintas dinamicamente usando HSL
+function generateColors(k: number): string[] {
+  const colors: string[] = [];
+  for (let i = 0; i < k; i++) {
+    const hue = (360 / k) * i; // Distribui uniformemente no espectro
+    colors.push(`hsl(${hue}, 70%, 55%)`);
+  }
+  return colors;
+}
 
 interface ClusterMapProps {
   clusters: readonly Cluster[];
 }
 
 export default function ClusterMap({ clusters }: ClusterMapProps) {
+  // Gera cores dinâmicas baseado no número de clusters
+  const COLORS = useMemo(() => generateColors(clusters.length), [clusters.length]);
+
   // Centraliza o mapa no primeiro centróide ou no Brasil/Mundo se vazio
   const firstCentroid = clusters[0]?.centroid.coords;
   const center: [number, number] = firstCentroid 
@@ -31,14 +35,7 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
         center={center}
         zoom={2}
         style={{ height: '100%', width: '100%', borderRadius: '1rem' }}
-        // Desabilita interações via opções do mapa
-        dragging={false}
-        touchZoom={false}
-        doubleClickZoom={false}
-        scrollWheelZoom={false}
-        boxZoom={false}
-        keyboard={false}
-        zoomControl={false}
+        zoomControl={true}
       >
         {/* Mapa Base (OpenStreetMap) */}
         <TileLayer
@@ -47,7 +44,7 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
         />
 
         {clusters.map((cluster, groupIndex) => {
-          const color = COLORS[groupIndex % COLORS.length];
+          const color = COLORS[groupIndex];
 
           return (
             <Fragment key={groupIndex}>
