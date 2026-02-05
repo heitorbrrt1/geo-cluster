@@ -1,8 +1,3 @@
-/**
- * Worker de Cluster Individual
- * Cada worker calcula distâncias de todas as cidades para UM centróide específico
- */
-
 import type { City } from '../types/geo';
 
 export interface ClusterWorkerRequest {
@@ -27,7 +22,6 @@ export interface ClusterWorkerResponse {
 
 const ctx: any = self;
 
-// Função para calcular distância euclidiana entre dois pontos (lat, lon)
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   return Math.sqrt(
     Math.pow(lat1 - lat2, 2) + Math.pow(lon1 - lon2, 2)
@@ -43,7 +37,6 @@ ctx.addEventListener('message', (event: MessageEvent<ClusterWorkerRequest>) => {
     console.log(`🔍 [Worker ${clusterId}] Recebido: ${cities.length} cidades para processar`);
     console.log(`📍 [Worker ${clusterId}] Centróide alvo: [${centroid.lat.toFixed(2)}, ${centroid.lon.toFixed(2)}]`);
 
-    // Calcula a distância de cada cidade até o centróide deste worker
     const distances = cities.map(city => ({
       cityId: city.id,
       distance: calculateDistance(
@@ -56,7 +49,6 @@ ctx.addEventListener('message', (event: MessageEvent<ClusterWorkerRequest>) => {
 
     console.log(`✅ [Worker ${clusterId}] Concluído: ${distances.length} distâncias calculadas`);
 
-    // Envia resultado de volta
     const response: ClusterWorkerResponse = {
       type: 'DISTANCES_CALCULATED',
       payload: {

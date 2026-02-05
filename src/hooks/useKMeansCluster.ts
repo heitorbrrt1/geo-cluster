@@ -1,8 +1,3 @@
-/**
- * Hook para coordenar K workers paralelos no algoritmo K-Means
- * Cada worker calcula distâncias para um centróide específico
- */
-
 import { useState, useCallback, useRef } from 'react';
 import type { City, Cluster, NormalizedCity } from '../types/geo';
 import type { ClusterWorkerRequest, ClusterWorkerResponse } from '../workers/cluster.worker';
@@ -21,7 +16,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
   const workersRef = useRef<Worker[]>([]);
   const abortRef = useRef(false);
 
-  // Inicializa K centróides aleatórios
   const initializeCentroids = (cities: readonly City[], k: number) => {
     const shuffled = [...cities].sort(() => 0.5 - Math.random());
     return shuffled.slice(0, k).map(city => ({
@@ -30,7 +24,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     }));
   };
 
-  // Cria K workers
   const createWorkers = (k: number): Worker[] => {
     const workers: Worker[] = [];
     for (let i = 0; i < k; i++) {
@@ -43,7 +36,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     return workers;
   };
 
-  // Solicita cálculo de distâncias de todos os workers em paralelo
   const calculateDistancesParallel = (
     workers: Worker[],
     cities: readonly City[],
@@ -60,7 +52,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
             
             console.log(`   ✅ Worker ${responseClusterId}: ${distances.length} distâncias calculadas`);
             
-            // Armazena as distâncias deste cluster
             const distanceMap = new Map<string, number>();
             distances.forEach(({ cityId, distance }) => {
               distanceMap.set(cityId, distance);
@@ -69,7 +60,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
 
             completedWorkers++;
 
-            // Quando todos os workers terminarem, resolve a promise
             if (completedWorkers === workers.length) {
               worker.removeEventListener('message', onMessage);
               resolve(distancesByCluster);
@@ -79,7 +69,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
 
         worker.addEventListener('message', onMessage);
 
-        // Envia requisição para calcular distâncias
         const request: ClusterWorkerRequest = {
           type: 'CALCULATE_DISTANCES',
           payload: {
@@ -93,7 +82,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     });
   };
 
-  // Atribui cada cidade ao cluster mais próximo
   const assignCitiesToClusters = (
     cities: readonly City[],
     distancesByCluster: Map<number, Map<string, number>>,
@@ -109,7 +97,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
       let minDistance = Infinity;
       let closestCluster = 0;
 
-      // Verifica a distância desta cidade para cada cluster
       for (let clusterId = 0; clusterId < k; clusterId++) {
         const distance = distancesByCluster.get(clusterId)?.get(city.id) ?? Infinity;
         if (distance < minDistance) {
@@ -118,7 +105,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
         }
       }
 
-      // Adiciona a cidade ao cluster mais próximo
       const member: NormalizedCity = {
         id: city.id,
         name: city.name,
@@ -135,7 +121,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     return clusters;
   };
 
-  // Recalcula centróides baseado nas cidades atribuídas
   const recalculateCentroids = (clusters: Cluster[]) => {
     return clusters.map(cluster => {
       if (!cluster.members || cluster.members.length === 0) {
@@ -152,7 +137,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     });
   };
 
-  // Verifica se houve convergência
   const hasConverged = (
     oldCentroids: Array<{ lat: number; lon: number }>,
     newCentroids: Array<{ lat: number; lon: number }>,
@@ -171,7 +155,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     return maxShift < threshold;
   };
 
-  // Atualiza centróides nos clusters
   const updateClusterCentroids = (
     clusters: Cluster[],
     centroids: Array<{ lat: number; lon: number }>
@@ -185,7 +168,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     }));
   };
 
-  // Função principal de K-Means com K workers paralelos
   const runKMeans = useCallback(
     async (cities: readonly City[], k: number, maxIterations = 50) => {
       if (!cities || cities.length === 0) {
@@ -203,7 +185,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
       abortRef.current = false;
 
       try {
-        // 1. Cria K workers
         console.log(`🚀 [K-MEANS] Criando ${k} workers paralelos...`);
         const workers = createWorkers(k);
         workersRef.current = workers;
@@ -211,17 +192,14 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
           console.log(`   ✅ Worker ${i} criado (Cluster ${i})`);
         });
 
-        // 2. Inicializa centróides aleatórios
         let centroids = initializeCentroids(cities, k);
         let currentClusters: Cluster[] = [];
         let iterations = 0;
         let converged = false;
 
-        // 3. Loop principal
         while (!converged && iterations < maxIterations && !abortRef.current) {
           iterations++;
 
-          // Reporta progresso
           const progressPercent = Math.round((iterations / maxIterations) * 100);
           setProgress(progressPercent);
           props?.onProgress?.(progressPercent, `Iteração ${iterations} (${k} workers)`);
@@ -231,7 +209,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
             console.log(`   📤 Worker ${i}: Calculando distâncias para Centróide [${centroid.lat.toFixed(2)}, ${centroid.lon.toFixed(2)}]`);
           });
 
-          // 4. Calcula distâncias em paralelo (K workers simultâneos)
           const distancesByCluster = await calculateDistancesParallel(
             workers,
             cities,
@@ -240,7 +217,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
 
           console.log(`✅ [ITERAÇÃO ${iterations}] Todos os ${workers.length} workers responderam!`);
 
-          // 5. Atribui cidades aos clusters
           currentClusters = assignCitiesToClusters(cities, distancesByCluster, k);
 
           console.log(`📊 [ITERAÇÃO ${iterations}] Distribuição após ${k} workers:`);
@@ -248,27 +224,21 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
             console.log(`   Cluster ${i}: ${cluster.members.length} cidades`);
           });
 
-          // 6. Recalcula centróides
           const newCentroids = recalculateCentroids(currentClusters);
 
-          // 7. Verifica convergência
           converged = hasConverged(centroids, newCentroids);
 
-          // 8. Atualiza centróides para próxima iteração
           centroids = newCentroids;
 
-          // Pequeno delay para não travar a UI
           await new Promise(resolve => setTimeout(resolve, 10));
         }
 
-        // 9. Finaliza: atualiza clusters com centróides finais
         console.log(`\n🎯 [CONVERGÊNCIA] Centróides estabilizaram após ${iterations} iterações!`);
         console.log(`🧹 Finalizando ${workers.length} workers...`);
         
         const finalClusters = updateClusterCentroids(currentClusters, centroids);
         setClusters(finalClusters);
 
-        // 10. Limpa workers
         workers.forEach((w, i) => {
           console.log(`   🛑 Worker ${i} finalizado`);
           w.terminate();
@@ -285,7 +255,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
         props?.onError?.(String(error));
         setIsRunning(false);
         
-        // Limpa workers em caso de erro
         workersRef.current.forEach(w => w.terminate());
         workersRef.current = [];
       }
@@ -293,7 +262,6 @@ export const useKMeansCluster = (props?: UseKMeansClusterProps) => {
     [props]
   );
 
-  // Cancela execução
   const abort = useCallback(() => {
     abortRef.current = true;
     workersRef.current.forEach(w => w.terminate());

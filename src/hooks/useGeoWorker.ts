@@ -12,7 +12,6 @@ type RunKMeansPayload = Extract<WorkerRequest, { readonly type: 'RUN_KMEANS' }>[
 export const useGeoWorker = (workerUrl?: string) => {
   const workerRef = useRef<Worker | null>(null);
   
-  // 1. MEMÓRIA: Guarda qual foi o offset inicial dessa rodada
   const startOffsetRef = useRef(0);
 
   const [isWorking, setIsWorking] = useState(false);
@@ -45,17 +44,12 @@ export const useGeoWorker = (workerUrl?: string) => {
           setWorkerData((prev) => {
              const newCities = msg.payload.cities || [];
              
-             // 1. Se começou do ZERO, apenas retorna as novas (sem duplicata interna)
              if (startOffsetRef.current === 0) {
                return newCities;
              }
              
-             // 2. BLINDAGEM CONTRA DUPLICATAS (O Segredo)
-             // Cria uma lista combinada (Antigas + Novas)
              const allCities = [...(prev || []), ...newCities];
              
-             // Usa um Map para filtrar por ID. 
-             // Se o ID já existe, o Map sobrescreve (mantendo apenas 1 versão)
              const uniqueCities = Array.from(
                 new Map(allCities.map(city => [city.id, city])).values()
              );
@@ -98,7 +92,6 @@ export const useGeoWorker = (workerUrl?: string) => {
     setProgress(0);
     setIsWorking(true);
 
-    // Guarda o offset para saber se limpa ou acumula depois
     startOffsetRef.current = payload.offsetStart;
 
     if (payload.offsetStart === 0) {
@@ -116,7 +109,6 @@ export const useGeoWorker = (workerUrl?: string) => {
 
   const runKMeans = useCallback((payload: { cities: readonly City[]; k: number }) => {
     if (!workerRef.current) { setError('Worker not available'); return; }
-    // Monta a mensagem manualmente para garantir tipagem
     workerRef.current.postMessage({ 
       type: 'RUN_KMEANS', 
       payload: { cities: payload.cities, k: payload.k } 

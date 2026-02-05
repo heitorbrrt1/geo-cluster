@@ -5,11 +5,10 @@ import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-lea
 import 'leaflet/dist/leaflet.css';
 import type { Cluster } from '@/types/geo';
 
-// Função para gerar K cores distintas dinamicamente usando HSL
 function generateColors(k: number): string[] {
   const colors: string[] = [];
   for (let i = 0; i < k; i++) {
-    const hue = (360 / k) * i; // Distribui uniformemente no espectro
+    const hue = (360 / k) * i;
     colors.push(`hsl(${hue}, 70%, 55%)`);
   }
   return colors;
@@ -20,14 +19,12 @@ interface ClusterMapProps {
 }
 
 export default function ClusterMap({ clusters }: ClusterMapProps) {
-  // Gera cores dinâmicas baseado no número de clusters
   const COLORS = useMemo(() => generateColors(clusters.length), [clusters.length]);
 
-  // Centraliza o mapa no primeiro centróide ou no Brasil/Mundo se vazio
   const firstCentroid = clusters[0]?.centroid.coords;
   const center: [number, number] = firstCentroid 
     ? [firstCentroid[0], firstCentroid[1]] 
-    : [20, 0]; // Visão global padrão
+    : [20, 0];
 
   return (
     <div className="h-full w-full relative z-0">
@@ -37,7 +34,6 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
         style={{ height: '100%', width: '100%', borderRadius: '1rem' }}
         zoomControl={true}
       >
-        {/* Mapa Base (OpenStreetMap) */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -48,12 +44,11 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
 
           return (
             <Fragment key={groupIndex}>
-              {/* 1. Desenha as CIDADES do grupo (Bolinhas pequenas) */}
               {cluster.members.map((city: any) => (
                 <CircleMarker
                   key={city.id}
                   center={[city.original.latitude, city.original.longitude]}
-                  radius={4} // Tamanho da bolinha
+                  radius={4}
                   pathOptions={{ 
                     color: color, 
                     fillColor: color, 
@@ -65,7 +60,6 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
                 </CircleMarker>
               ))}
 
-              {/* 2. Desenha o CENTRÓIDE do grupo (Bola grande com borda preta) */}
               <CircleMarker
                 center={[cluster.centroid.coords[0], cluster.centroid.coords[1]]}
                 radius={12}
@@ -86,7 +80,6 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
         })}
       </MapContainer>
 
-      {/* Legenda Flutuante */}
       <div className="absolute bottom-4 right-4 bg-white/90 p-3 rounded-lg shadow-xl z-1000 text-xs">
         <h4 className="font-bold mb-2">Legenda</h4>
         {clusters.map((c, i) => (

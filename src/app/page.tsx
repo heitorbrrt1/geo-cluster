@@ -6,7 +6,6 @@ import { useGeoWorker } from '@/hooks/useGeoWorker';
 import { useKMeansCluster } from '@/hooks/useKMeansCluster';
 import type { City, GeoDBCityRaw, GeoDBResponse } from '@/types/geo';
 
-// Importação dinâmica para evitar erro de 'window is not defined' no Leaflet
 const ClusterMap = dynamic(() => import('@/components/ClusterMap'), {
   ssr: false,
   loading: () => (
@@ -30,7 +29,6 @@ export default function GeoClusterPage() {
 
   const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
   
-  // Hook para K-Means paralelo com K workers
   const kmeansCluster = useKMeansCluster({
     onProgress: (progress, message) => {
       console.log(`K-Means: ${message}`);
@@ -46,7 +44,6 @@ export default function GeoClusterPage() {
   const clusters = kmeansCluster.clusters;
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
-    // Verifica cache primeiro
     if (cacheRef.current.has(currentOffset)) {
       console.log(`💾 [CACHE] Página ${currentOffset} carregada do cache`);
       setManualCities(cacheRef.current.get(currentOffset)!);
@@ -83,7 +80,6 @@ export default function GeoClusterPage() {
           population: Number(raw.population),
         }));
 
-      // Salva no cache
       cacheRef.current.set(currentOffset, validCities);
       console.log(`📥 [API] Página ${currentOffset} buscada e cacheada`);
 
@@ -142,7 +138,6 @@ export default function GeoClusterPage() {
     });
   }, [manualOffset, startFetch]);
 
-  // Função para disparar o download do JSON gerado pelo worker
   const handleDownloadData = useCallback(() => {
     if (!workerData || workerData.length === 0) return;
 
@@ -163,7 +158,6 @@ export default function GeoClusterPage() {
     kmeansCluster.runKMeans(workerData, kValue);
   }, [workerData, kValue, kmeansCluster]);
 
-  // Função para limpar a memória do worker
   const handleClearMemory = useCallback(() => {
     if (confirm('Deseja apagar todas as cidades da memória local?')) {
       setWorkerData([]);
@@ -180,8 +174,8 @@ export default function GeoClusterPage() {
         const content = e.target?.result as string;
         const loadedCities = JSON.parse(content) as City[];
         
-        setWorkerData(loadedCities); // Manda para o Worker (K-Means)
-        setManualCities(loadedCities); // <--- ADICIONE ISSO (Mostra na lista da esquerda)
+        setWorkerData(loadedCities);
+        setManualCities(loadedCities);
         
         console.log(`Carregadas ${loadedCities.length} cidades do arquivo!`);
         alert(`Sucesso! ${loadedCities.length} cidades carregadas.`);
@@ -193,7 +187,6 @@ export default function GeoClusterPage() {
     reader.readAsText(file);
   }, [setWorkerData]);
 
-  // Memoiza filtro de cidades selecionadas para evitar re-cálculo a cada render
   const filteredSelectedCities = useMemo(() => 
     selectedCities.filter(city =>
       city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -210,7 +203,6 @@ export default function GeoClusterPage() {
     setSelectedClusterForModal(null);
   }, []);
 
-  // Memoiza lista de cidades para evitar re-render ao digitar
   const cityCards = useMemo(() => {
     if (loadingManual) {
       return (
@@ -295,11 +287,9 @@ export default function GeoClusterPage() {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* HEADER MODERNO */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            {/* LOGO E TÍTULO */}
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-linear-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                 <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -314,9 +304,7 @@ export default function GeoClusterPage() {
               </div>
             </div>
 
-            {/* CONTROLES DO WORKER */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              {/* STATS */}
               <div className="flex gap-3">
                 <div className="px-4 py-2 bg-slate-100 rounded-xl">
                   <div className="text-xs text-slate-500 font-medium">Total API</div>
@@ -329,10 +317,8 @@ export default function GeoClusterPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                {/* CAMPOS DE CONFIGURAÇÃO (Só aparecem se não estiver rodando) */}
                 {!isWorking && !kmeansCluster.isRunning && (
                   <div className="flex gap-3">
-                    {/* CAMPO DE OFFSET MANUAL (Só se não tiver dados carregados) */}
                     {(!workerData || workerData.length === 0) && (
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
@@ -349,7 +335,6 @@ export default function GeoClusterPage() {
                       </div>
                     )}
                     
-                    {/* CAMPO K (Sempre visível quando não está rodando) */}
                     <div className="flex flex-col">
                       <label className="text-[10px] font-bold text-purple-600 uppercase ml-1">
                         Cluster K
@@ -367,7 +352,6 @@ export default function GeoClusterPage() {
                   </div>
                 )}
 
-                {/* BOTÃO DUPLO: INICIAR / PARAR */}
                 <button
                   onClick={isWorking ? stopFetch : handleStartMining}
                   className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center gap-2 shadow-lg ${
@@ -394,9 +378,7 @@ export default function GeoClusterPage() {
                   )}
                 </button>
               </div>
-              {/* UPLOAD / DOWNLOAD JSON */}
               <div className="flex gap-2 mr-4">
-                  {/* Botão de Lixeira */}
                   {workerData && workerData.length > 0 && !isWorking && (
                     <button
                       onClick={handleClearMemory}
@@ -425,7 +407,6 @@ export default function GeoClusterPage() {
                       💾 Salvar JSON
                     </button>
                   )}
-                  {/* Botão K-Means - Só aparece se tiver dados e não estiver trabalhando */}
                   {workerData && workerData.length > 0 && !isWorking && !kmeansCluster.isRunning && (
                     <button
                       onClick={handleRunKMeans}
@@ -435,7 +416,6 @@ export default function GeoClusterPage() {
                       Agrupar (K={kValue})
                     </button>
                   )}
-                  {/* Indicador de K-Means rodando */}
                   {kmeansCluster.isRunning && (
                     <div className="flex items-center gap-2 bg-purple-100 px-4 py-2 rounded-lg border border-purple-300">
                       <svg className="animate-spin h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24">
@@ -449,7 +429,6 @@ export default function GeoClusterPage() {
             </div>
           </div>
 
-          {/* PROGRESS BAR */}
           {isWorking && (
             <div className="mt-4 bg-white rounded-xl p-4 shadow-sm border border-slate-200">
               <div className="flex justify-between items-center mb-2">
@@ -465,7 +444,6 @@ export default function GeoClusterPage() {
             </div>
           )}
 
-          {/* SUCCESS MESSAGE */}
           {!isWorking && workerData && workerData.length > 0 && (
             <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
               <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
@@ -480,7 +458,6 @@ export default function GeoClusterPage() {
             </div>
           )}
 
-          {/* ERROR MESSAGE */}
           {workerError && (
             <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
               <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
@@ -497,12 +474,9 @@ export default function GeoClusterPage() {
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
-      <main className="max-w-7xl mx-auto p-6 space-y-6"> {/* Adicione space-y-6 para dar espaçamento vertical */}
-        {/* PARTE 1: AS DUAS COLUNAS (LADO A LADO) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-150"> {/* Altura fixa ajuda a manter o layout estável */}
+      <main className="max-w-7xl mx-auto p-6 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-150">
           
-          {/* COLUNA ESQUERDA: EXPLORADOR API */}
           <section className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <div className="bg-linear-to-r from-slate-50 to-blue-50 px-6 py-4 border-b border-slate-200">
               <div className="flex items-center justify-between">
@@ -519,7 +493,6 @@ export default function GeoClusterPage() {
                 </div>
               </div>
 
-              {/* BOTÃO DE BUSCAR PRIMEIRAS 10 */}
               {manualCities.length === 0 && !loadingManual && (
                 <div className="mt-4 flex justify-center">
                   <button
@@ -534,7 +507,6 @@ export default function GeoClusterPage() {
                 </div>
               )}
 
-              {/* PAGINAÇÃO */}
               {manualCities.length > 0 && (
                 <div className="mt-4 flex items-center justify-between bg-white rounded-xl p-3 shadow-sm">
                   <button
@@ -569,16 +541,13 @@ export default function GeoClusterPage() {
               )}
             </div>
 
-            {/* LISTA DE CIDADES */}
             <div className="p-4 h-[calc(100vh-400px)] overflow-y-auto">
               {cityCards}
             </div>
           </section>
 
-          {/* COLUNA DIREITA: LISTA DE CLUSTERS (Volta a ser apenas lista) */}
           <section className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
             
-            {/* CABEÇALHO DA COLUNA */}
             <div className={`px-6 py-4 border-b border-slate-200 ${clusters.length > 0 ? 'bg-purple-50' : 'bg-linear-to-r from-indigo-50 to-purple-50'}`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
@@ -603,15 +572,12 @@ export default function GeoClusterPage() {
               </div>
             </div>
 
-            {/* LISTA DE CONTEÚDO */}
             <div className="p-4 overflow-y-auto flex-1">
               
-              {/* CENÁRIO 1: MOSTRAR CLUSTERS (SE O K-MEANS RODOU) */}
               {clusters.length > 0 ? (
                 <div className="space-y-6">
                   {clusters.map((cluster, i) => (
                     <div key={i} className="border border-purple-200 rounded-xl overflow-hidden shadow-sm">
-                      {/* Cabeçalho do Grupo */}
                       <div className="bg-purple-100 px-4 py-2 flex justify-between items-center">
                         <span className="font-bold text-purple-900">Grupo {i + 1}</span>
                         <span className="text-xs bg-white text-purple-700 px-2 py-1 rounded-full font-bold border border-purple-200">
@@ -619,13 +585,11 @@ export default function GeoClusterPage() {
                         </span>
                       </div>
                       
-                      {/* Detalhes do Centróide */}
                       <div className="bg-purple-50 px-4 py-2 text-xs text-purple-600 border-b border-purple-100 flex gap-4">
                         <span>📍 Centro Lat: {cluster.centroid.coords[0].toFixed(2)}</span>
                         <span>📍 Centro Lon: {cluster.centroid.coords[1].toFixed(2)}</span>
                       </div>
 
-                      {/* Lista das primeiras 5 cidades do grupo (Amostra) */}
                       <div className="p-2 space-y-1">
                         {cluster.members.slice(0, 5).map((member: any) => (
                           <div key={member.id} className="text-sm text-slate-600 px-2 py-1 bg-white rounded border border-slate-100 flex justify-between">
@@ -652,7 +616,6 @@ export default function GeoClusterPage() {
                   ))}
                 </div>
               ) : (
-                /* CENÁRIO 2: MOSTRAR SELEÇÃO MANUAL (SE NÃO RODOU K-MEANS) */
                 selectedCities.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 min-h-50">
                     <p className="font-semibold text-slate-600 mb-1">Repositório vazio</p>
@@ -675,11 +638,8 @@ export default function GeoClusterPage() {
           </section>
         </div>
 
-        {/* PARTE 2: O MAPA (EMBAIXO, LARGURA TOTAL) */}
-        {/* Só mostramos essa seção se o K-Means já tiver rodado */}
         {clusters.length > 0 && (
           <section className="w-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-700">
-            {/* Cabeçalho do Mapa */}
             <div className="px-6 py-4 border-b border-slate-200 bg-linear-to-r from-emerald-50 to-teal-50 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-xl">
@@ -692,9 +652,7 @@ export default function GeoClusterPage() {
               </div>
             </div>
 
-            {/* O Mapa em si */}
             <div className="h-150 w-full p-1 bg-slate-50"> 
-              {/* Altura de 600px garante uma ótima visualização */}
               <ClusterMap clusters={clusters} />
             </div>
           </section>
@@ -702,11 +660,9 @@ export default function GeoClusterPage() {
 
       </main>
 
-      {/* MODAL DE CIDADES DO CLUSTER */}
       {selectedClusterForModal !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleCloseClusterModal}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* Cabeçalho do Modal */}
             <div className="px-6 py-4 border-b border-slate-200 bg-purple-50 rounded-t-2xl flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-bold text-slate-900">Grupo {selectedClusterForModal + 1}</h3>
@@ -722,7 +678,6 @@ export default function GeoClusterPage() {
               </button>
             </div>
 
-            {/* Corpo do Modal com Scroll */}
             <div className="overflow-y-auto p-6 flex-1">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {clusters[selectedClusterForModal].members.map((member: any) => (
@@ -754,7 +709,6 @@ export default function GeoClusterPage() {
               </div>
             </div>
 
-            {/* Rodapé do Modal */}
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex justify-end">
               <button
                 onClick={handleCloseClusterModal}

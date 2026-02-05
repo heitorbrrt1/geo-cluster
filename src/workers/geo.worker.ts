@@ -9,15 +9,11 @@ import type {
 } from '../types/geo';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-// Define como 'any' para o TypeScript aceitar tanto postMessage quanto close()
 const ctx: any = self;
 
-// --- ESTADO GLOBAL DO WORKER ---
-// Estas variáveis vivem fora das funções para serem acessadas por todos os eventos
-let isMining = false; // "Chave geral" da mineração
-let currentController: AbortController | null = null; // Para cancelar requisições travadas
+let isMining = false;
+let currentController: AbortController | null = null;
 
-// Função principal de Mineração (Separada do Event Listener para não travar)
 async function mineCities(
   offsetStart: number, 
   totalToFetch: number, 
@@ -30,7 +26,6 @@ async function mineCities(
 
   try {
     while (isMining && collected.length < totalToFetch) {
-      // 1. Cria um Controller para poder cancelar este fetch específico se pararmos
       currentController = new AbortController();
       const signal = currentController.signal;
 
@@ -48,17 +43,16 @@ async function mineCities(
       try {
         const res = await fetch(url, { 
           headers: headers as Record<string, string> | undefined,
-          signal // Liga o sinal de cancelamento
+          signal
         });
 
-        // Tratamento de Rate Limit (429)
         if (res.status === 429) {
           ctx.postMessage({ 
             type: 'FETCH_PROGRESS', 
             payload: { progress: 0, message: '⏳ Rate limit (429). Esperando 5s...' } 
           });
           await delay(5000);
-          continue; // Tenta de novo a mesma página
+          continue;
         }
 
         if (!res.ok) throw new Error(`Erro API: ${res.status}`);
@@ -66,7 +60,7 @@ async function mineCities(
         const json = (await res.json()) as GeoDBResponse<GeoDBCityRaw>;
         const raw = json.data ?? [];
 
-        if (raw.length === 0) break; // Acabaram as cidades na API
+        if (raw.length === 0) break;
 
         const good = raw
           .filter((r) => r.population != null && r.population !== 0)
@@ -83,15 +77,13 @@ async function mineCities(
         collected.push(...good);
         fetchedCount += raw.length;
 
-        // Log bonito no console
-        const totalAccumulated = offsetStart + fetchedCount; // Ajuste para mostrar o real processado
+        const totalAccumulated = offsetStart + fetchedCount;
         const target = offsetStart + totalToFetch;
         console.log(
           `%c⛏️ Mineração: ${totalAccumulated} (Alvo: ${target}) | Lote: ${good.length}`,
           'color: #00ffff; font-weight: bold;'
         );
 
-        // Reporta progresso
         const progress = Math.min(100, Math.round((collected.length / totalToFetch) * 100));
         ctx.postMessage({
           type: 'FETCH_PROGRESS',
@@ -99,23 +91,18 @@ async function mineCities(
         });
 
       } catch (err: any) {
-        // Se o erro foi "AbortError", é porque paramos propositalmente. Ignora.
         if (err.name === 'AbortError') {
            break; 
         }
-        // Se foi erro de rede, espera um pouco e continua
         console.error("Erro no fetch:", err);
         await delay(2000);
       }
 
-      // Pequeno delay para não sobrecarregar a CPU e dar chance de parar
       await delay(1200);
     }
   } finally {
-    // FIM (Seja por acabar, por erro ou por parar)
-    isMining = false; // Garante que a flag baixou
+    isMining = false;
     
-    // Entrega o que pegou até agora
     ctx.postMessage({ 
       type: 'FETCH_COMPLETE', 
       payload: { cities: collected } 
@@ -123,34 +110,27 @@ async function mineCities(
   }
 }
 
-// --- ESCUTADOR DE EVENTOS (O Porteiro) ---
 ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
 
   switch (req.type) {
     case 'START_FETCH': {
-      // Se já estiver rodando, ignora ou reinicia (aqui optamos por ignorar duplicado)
       if (isMining) return;
 
       isMining = true;
       const { offsetStart, totalToFetch, limitPerPage = 10, headers, query } = req.payload;
       
-      // DISPARA A FUNÇÃO SEM 'AWAIT'
-      // Isso libera o Event Loop imediatamente para ouvir o 'STOP'
       mineCities(offsetStart, totalToFetch, limitPerPage, headers, query);
       break;
     }
 
     case 'STOP_FETCH': {
-      // 1. Baixa a flag (o loop vai parar na próxima volta)
       isMining = false;
       
-      // 2. Aborta a requisição atual imediatamente (para não esperar o fetch voltar)
       if (currentController) {
         currentController.abort();
       }
       
-      // Envia feedback imediato
       ctx.postMessage({
         type: 'FETCH_PROGRESS',
         payload: { progress: 100, message: '🛑 Parando...' },
@@ -172,9 +152,7 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
 
       type LocalCentroid = { lat: number; lon: number };
 
-      // copia mutável para embaralhar
       const citiesCopy: City[] = [...cities];
-      // 2. Inicialização: Escolhe K centróides aleatórios
       const shuffled = citiesCopy.sort(() => 0.5 - Math.random());
       let centroids: LocalCentroid[] = shuffled
         .slice(0, k)
@@ -193,7 +171,6 @@ ctx.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
           members: [] as NormalizedCity[],
         }));
 
-        // Assignment
         for (const city of cities) {
           let minDistance = Infinity;
           let closestClusterIndex = 0;
