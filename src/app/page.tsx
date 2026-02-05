@@ -219,8 +219,11 @@ export default function GeoClusterPage() {
     if (manualCities.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-slate-400">
-          <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="m13.5 8.5-5 5" />
+            <path d="m8.5 8.5 5 5" />
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
           </svg>
           <p className="font-medium">Nenhuma cidade encontrada</p>
         </div>
@@ -618,7 +621,13 @@ export default function GeoClusterPage() {
               ) : (
                 selectedCities.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 min-h-50">
-                    <p className="font-semibold text-slate-600 mb-1">Repositório vazio</p>
+                    <svg className="w-16 h-16 mb-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="20" height="5" x="2" y="3" rx="1" />
+                      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                      <path d="m9.5 17 5-5" />
+                      <path d="m9.5 12 5 5" />
+                    </svg>
+                    <p className="font-semibold text-slate-400 mb-1">Repositório vazio</p>
                     <p className="text-sm text-slate-400">Selecione cidades ou rode o K-Means</p>
                   </div>
                 ) : (
