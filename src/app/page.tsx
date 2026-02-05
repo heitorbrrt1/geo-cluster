@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import dynamic from 'next/dynamic';
 import { useGeoWorker } from '@/hooks/useGeoWorker';
+import { useKMeansCluster } from '@/hooks/useKMeansCluster';
 import type { City, GeoDBCityRaw, GeoDBResponse } from '@/types/geo';
 
 // Importação dinâmica para evitar erro de 'window is not defined' no Leaflet
@@ -23,8 +24,25 @@ export default function GeoClusterPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [manualOffset, setManualOffset] = useState(0);
+  const [kValue, setKValue] = useState(5);
+  const [selectedClusterForModal, setSelectedClusterForModal] = useState<number | null>(null);
 
-  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData, runKMeans, clusters } = useGeoWorker();
+  const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
+  
+  // Hook para K-Means paralelo com K workers
+  const kmeansCluster = useKMeansCluster({
+    onProgress: (progress, message) => {
+      console.log(`K-Means: ${message}`);
+    },
+    onComplete: (resultClusters, iterations) => {
+      alert(`✅ Agrupamento concluído em ${iterations} iterações com ${kValue} workers paralelos!`);
+    },
+    onError: (error) => {
+      alert(`❌ Erro no K-Means: ${error}`);
+    },
+  });
+
+  const clusters = kmeansCluster.clusters;
 
   const fetchManualCities = useCallback(async (currentOffset: number) => {
     setLoadingManual(true);
@@ -130,7 +148,7 @@ export default function GeoClusterPage() {
 
   const handleRunKMeans = () => {
     if (!workerData || workerData.length === 0) return;
-    runKMeans({ cities: workerData, k: 5 });
+    kmeansCluster.runKMeans(workerData, kValue);
   };
 
   // Função para limpar a memória do worker
@@ -167,6 +185,14 @@ export default function GeoClusterPage() {
     city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     city.country.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleOpenClusterModal = (clusterIndex: number) => {
+    setSelectedClusterForModal(clusterIndex);
+  };
+
+  const handleCloseClusterModal = () => {
+    setSelectedClusterForModal(null);
+  };
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -205,19 +231,35 @@ export default function GeoClusterPage() {
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 {/* CAMPO DE OFFSET MANUAL (Só aparece se não estiver rodando) */}
-                {!isWorking && (
-                  <div className="flex flex-col">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
-                      Começar do Offset
-                    </label>
-                    <input 
-                      type="number" 
-                      value={manualOffset}
-                      onChange={(e) => setManualOffset(Number(e.target.value))}
-                      className="w-24 px-3 py-3 rounded-xl border border-slate-200 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                      placeholder="0"
-                      min={0}
-                    />
+                {!isWorking && !kmeansCluster.isRunning && (
+                  <div className="flex gap-3">
+                    <div className="flex flex-col">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                        Começar do Offset
+                      </label>
+                      <input 
+                        type="number" 
+                        value={manualOffset}
+                        onChange={(e) => setManualOffset(Number(e.target.value))}
+                        className="w-24 px-3 py-3 rounded-xl border border-slate-200 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                        placeholder="0"
+                        min={0}
+                      />
+                    </div>
+                    <div className="flex flex-col">
+                      <label className="text-[10px] font-bold text-purple-600 uppercase ml-1">
+                        Cluster K
+                      </label>
+                      <input 
+                        type="number" 
+                        value={kValue}
+                        onChange={(e) => setKValue(Math.max(1, Number(e.target.value)))}
+                        className="w-20 px-3 py-3 rounded-xl border border-purple-300 text-center font-bold text-purple-700 focus:ring-2 focus:ring-purple-500 outline-none shadow-sm bg-purple-50"
+                        placeholder="5"
+                        min={1}
+                        max={20}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -280,13 +322,24 @@ export default function GeoClusterPage() {
                     </button>
                   )}
                   {/* Botão K-Means - Só aparece se tiver dados e não estiver trabalhando */}
-                  {workerData && workerData.length > 0 && !isWorking && (
+                  {workerData && workerData.length > 0 && !isWorking && !kmeansCluster.isRunning && (
                     <button
                       onClick={handleRunKMeans}
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm font-bold shadow-lg"
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all flex items-center gap-2"
                     >
-                      🧠 Agrupar (K=5)
+                      <span className="text-lg">🧠</span>
+                      Agrupar (K={kValue})
                     </button>
+                  )}
+                  {/* Indicador de K-Means rodando */}
+                  {kmeansCluster.isRunning && (
+                    <div className="flex items-center gap-2 bg-purple-100 px-4 py-2 rounded-lg border border-purple-300">
+                      <svg className="animate-spin h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                      </svg>
+                      <span className="text-sm font-bold text-purple-700">{kValue} Workers: {kmeansCluster.progress}%</span>
+                    </div>
                   )}
               </div>
             </div>
@@ -362,18 +415,34 @@ export default function GeoClusterPage() {
                 </div>
               </div>
 
+              {/* BOTÃO DE BUSCAR PRIMEIRAS 10 */}
+              {manualCities.length === 0 && !loadingManual && (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    onClick={() => fetchManualCities(0)}
+                    className="px-6 py-3 rounded-xl font-semibold bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-all"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    Buscar Primeiras 10 Cidades
+                  </button>
+                </div>
+              )}
+
               {/* PAGINAÇÃO */}
-              <div className="mt-4 flex items-center justify-between bg-white rounded-xl p-3 shadow-sm">
-                <button
-                  onClick={handlePrevPage}
-                  disabled={offset === 0 || loadingManual}
-                  className="px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Anterior
-                </button>
+              {manualCities.length > 0 && (
+                <div className="mt-4 flex items-center justify-between bg-white rounded-xl p-3 shadow-sm">
+                  <button
+                    onClick={handlePrevPage}
+                    disabled={offset === 0 || loadingManual}
+                    className="px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Anterior
+                  </button>
                 
                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-lg">
                   <span className="text-sm font-medium text-slate-600">Página</span>
@@ -393,6 +462,7 @@ export default function GeoClusterPage() {
                   </svg>
                 </button>
               </div>
+              )}
             </div>
 
             {/* LISTA DE CIDADES */}
@@ -530,8 +600,17 @@ export default function GeoClusterPage() {
                           </div>
                         ))}
                         {cluster.members.length > 5 && (
-                          <div className="text-xs text-center text-slate-400 italic py-1">
-                            + {cluster.members.length - 5} outras cidades...
+                          <div className="flex justify-center py-2">
+                            <button
+                              onClick={() => handleOpenClusterModal(i)}
+                              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-all shadow-sm flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              Ver todas ({cluster.members.length})
+                            </button>
                           </div>
                         )}
                       </div>
@@ -588,6 +667,71 @@ export default function GeoClusterPage() {
         )}
 
       </main>
+
+      {/* MODAL DE CIDADES DO CLUSTER */}
+      {selectedClusterForModal !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleCloseClusterModal}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Cabeçalho do Modal */}
+            <div className="px-6 py-4 border-b border-slate-200 bg-purple-50 rounded-t-2xl flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Grupo {selectedClusterForModal + 1}</h3>
+                <p className="text-sm text-slate-600">{clusters[selectedClusterForModal].members.length} cidades neste cluster</p>
+              </div>
+              <button
+                onClick={handleCloseClusterModal}
+                className="w-10 h-10 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center transition-all"
+              >
+                <svg className="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Corpo do Modal com Scroll */}
+            <div className="overflow-y-auto p-6 flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {clusters[selectedClusterForModal].members.map((member: any) => (
+                  <div key={member.id} className="bg-linear-to-br from-slate-50 to-purple-50 border border-purple-200 rounded-xl p-4 hover:shadow-lg transition-all">
+                    <h4 className="font-bold text-slate-900 mb-2">{member.name}</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                        </svg>
+                        <span>{member.country}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-600">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        <span>{member.original.population.toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-500 text-xs">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span>{member.original.latitude.toFixed(2)}, {member.original.longitude.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl flex justify-end">
+              <button
+                onClick={handleCloseClusterModal}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-all"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
