@@ -3,7 +3,7 @@
 import { Fragment, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Cluster } from '@/types/geo';
+import { Cluster, NormalizedCity } from '@/types/geo';
 
 function generateColors(k: number): string[] {
   const colors: string[] = [];
@@ -44,7 +44,7 @@ export default function ClusterMap({ clusters }: ClusterMapProps) {
 
           return (
             <Fragment key={groupIndex}>
-              {cluster.members.map((city: any) => (
+              {cluster.members.map((city: NormalizedCity) => (
                 <CircleMarker
                   key={city.id}
                   center={[city.original.latitude, city.original.longitude]}
