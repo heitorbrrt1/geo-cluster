@@ -8,6 +8,7 @@ interface LocalRepositoryProps {
   searchTerm: string;
   onRemoveCity: (cityId: string) => void;
   onOpenClusterModal: (clusterIndex: number) => void;
+  onClearLocalRepository: () => void;
 }
 
 export default function LocalRepository({
@@ -16,6 +17,7 @@ export default function LocalRepository({
   searchTerm,
   onRemoveCity,
   onOpenClusterModal,
+  onClearLocalRepository,
 }: LocalRepositoryProps) {
   const filteredSelectedCities = selectedCities.filter(city =>
     city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -124,6 +126,14 @@ export default function LocalRepository({
                 {clusters.length > 0 ? `${clusters.length} grupos formados` : 'Suas cidades selecionadas'}
               </p>
             </div>
+          </div>
+          <div>
+            <button
+              onClick={onClearLocalRepository}
+              className="px-3 py-1 rounded-lg text-sm bg-white border border-slate-200 text-red-600 font-semibold hover:bg-red-50"
+            >
+              Limpar repositório
+            </button>
           </div>
         </div>
       </div>

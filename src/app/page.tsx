@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, ChangeEvent, useRef } from 'react';
+import { useState, useCallback, ChangeEvent, useRef, useEffect } from 'react';
 import { useGeoWorker } from '@/hooks/useGeoWorker';
 import { useKMeansCluster } from '@/hooks/useKMeansCluster';
 import type { City, GeoDBCityRaw, GeoDBResponse } from '@/types/geo';
@@ -22,6 +22,7 @@ export default function GeoClusterPage() {
   const [kValue, setKValue] = useState(5);
   const [selectedClusterForModal, setSelectedClusterForModal] = useState<number | null>(null);
   const cacheRef = useRef<Map<number, City[]>>(new Map());
+  const SELECTED_STORAGE_KEY = 'geo-cluster:selectedCities';
 
   const { startFetch, stopFetch, isWorking, progress, workerData, error: workerError, setWorkerData } = useGeoWorker();
   
@@ -116,14 +117,37 @@ export default function GeoClusterPage() {
   }, [offset, workerData, fetchManualCities]);
 
   const handleSelectCity = useCallback((city: City) => {
-    if (!selectedCities.some((c) => c.id === city.id)) {
-      setSelectedCities((prev) => [...prev, city]); 
-    }
-  }, [selectedCities]);
+    setSelectedCities((prev) => {
+      if (prev.some((c) => c.id === city.id)) return prev;
+      return [...prev, city];
+    });
+  }, []);
 
   const handleRemoveCity = useCallback((cityId: string) => {
     setSelectedCities((prev) => prev.filter((c) => c.id !== cityId));
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SELECTED_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as City[];
+        if (Array.isArray(parsed)) {
+          setSelectedCities(parsed);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load selected cities from localStorage', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify(selectedCities));
+    } catch (err) {
+      console.error('Failed to save selected cities to localStorage', err);
+    }
+  }, [selectedCities]);
 
   const handleStartMining = useCallback(() => {
     const targetTotal = 10000;
@@ -172,6 +196,26 @@ export default function GeoClusterPage() {
     }
   }, [setWorkerData]);
 
+  const handleStopFetch = useCallback(() => {
+    stopFetch();
+    
+    setTimeout(() => {
+      if (workerData && workerData.length > 0) {
+        handleDownloadData();
+      }
+    }, 100);
+  }, [stopFetch, workerData, handleDownloadData]);
+
+  useEffect(() => {
+    if (workerData && workerData.length > 0) {
+      setTotalCount(workerData.length);
+      setOffset(0);
+      setManualCities(workerData.slice(0, 10));
+      cacheRef.current.clear();
+      console.log(`✅ CityExplorer atualizado com ${workerData.length} cidades mineradas`);
+    }
+  }, [workerData]);
+
   const handleLoadFromFile = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -206,6 +250,17 @@ export default function GeoClusterPage() {
     setSelectedClusterForModal(null);
   }, []);
 
+  const handleClearLocalRepository = useCallback(() => {
+    if (confirm('Deseja apagar todas as cidades do repositório local?')) {
+      setSelectedCities([]);
+      try {
+        localStorage.removeItem(SELECTED_STORAGE_KEY);
+      } catch (err) {
+        console.error('Falha ao limpar localStorage', err);
+      }
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-50">
       <Header
@@ -222,7 +277,7 @@ export default function GeoClusterPage() {
         onManualOffsetChange={setManualOffset}
         onKValueChange={setKValue}
         onStartMining={handleStartMining}
-        onStopFetch={stopFetch}
+        onStopFetch={handleStopFetch}
         onClearMemory={handleClearMemory}
         onLoadFromFile={handleLoadFromFile}
         onDownloadData={handleDownloadData}
@@ -249,6 +304,7 @@ export default function GeoClusterPage() {
             searchTerm={searchTerm}
             onRemoveCity={handleRemoveCity}
             onOpenClusterModal={handleOpenClusterModal}
+            onClearLocalRepository={handleClearLocalRepository}
           />
         </div>
 
