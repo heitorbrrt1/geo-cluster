@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🌍 Geo Cluster
 
-## Getting Started
+Aplicação web para análise e agrupamento geoespacial de cidades usando o algoritmo K-Means com processamento paralelo via Web Workers.
 
-First, run the development server:
+## 📋 Sobre
+
+Geo Cluster permite explorar, selecionar e agrupar cidades do mundo inteiro com base em suas coordenadas geográficas. A aplicação utiliza o algoritmo K-Means otimizado com Web Workers para processar milhares de cidades sem travar a interface, exibindo os resultados em um mapa interativo.
+
+### ✨ Funcionalidades
+
+- 🔍 Exploração de cidades por repositório local (90.000+) ou via API GeoDB Cities
+- 📊 Algoritmo K-Means paralelo com Web Workers
+- 🗺️ Visualização interativa dos clusters em mapa (Leaflet)
+- 💾 Persistência local das cidades selecionadas
+- 🎨 Interface moderna e responsiva com Tailwind CSS
+
+## 🚀 Tecnologias
+
+- **Next.js 16** + **React 19** + **TypeScript**
+- **Tailwind CSS 4** para estilização
+- **Leaflet** + **React-Leaflet** para mapas
+- **Web Workers API** para processamento paralelo
+
+## 🔧 Como Rodar
+
+### Pré-requisitos
+
+- Node.js 20+
+- npm/yarn/pnpm
+
+### Instalação
 
 ```bash
+# Clone o repositório
+git clone https://github.com/heitorbrrt1/geo-cluster.git
+cd geo-cluster
+
+# Instale as dependências
+npm install
+
+# Execute em modo de desenvolvimento
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev    # Desenvolvimento
+npm run build  # Build para produção
+npm run start  # Servidor de produção
+npm run lint   # Linter
+```
 
-## Learn More
+## 📝 Como Usar
 
-To learn more about Next.js, take a look at the following resources:
+1. **Selecione cidades**: Use o explorador local ou busque via API
+2. **Configure o K**: Defina o número de clusters desejados
+3. **Execute K-Means**: Clique no botão e aguarde o processamento
+4. **Visualize**: Explore os clusters no mapa interativo
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
